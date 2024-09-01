@@ -15,6 +15,8 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    'portal' => env('BITRIX_PORTAL'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

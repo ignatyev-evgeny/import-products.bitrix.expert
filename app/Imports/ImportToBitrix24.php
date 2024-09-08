@@ -2,33 +2,31 @@
 
 namespace App\Imports;
 
+use App\Http\Services\Bitrix24Service;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Maatwebsite\Excel\Concerns\ToCollection;
+use Maatwebsite\Excel\Concerns\WithChunkReading;
+use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
+use Maatwebsite\Excel\Events\AfterImport;
 
-class ImportToBitrix24 implements ToCollection, WithHeadingRow
+class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading, ShouldQueue, WithEvents
 {
-    /**
-    * @param Collection $collection
-    */
+
+    private Bitrix24Service $bitrixService;
+
+    public function __construct(Bitrix24Service $bitrixService)
+    {
+        $this->bitrixService = $bitrixService;
+    }
+
     public function collection(Collection $collection)
     {
-        $authId = Cache::get('AUTH_ID');
-        $domain = Cache::get('DOMAIN');
-        $type = Cache::get('TYPE');
-        $objectId = Cache::get('OBJECT_ID');
+        $smartProcessDetail = $this->bitrixService->getSmartProcessDetail();
 
-        if(empty($authId) || empty($domain) || empty($type)){
-            throw new \Exception('AUTH_ID и/или DOMAIN и/или TYPE не были переданы. Свяжитесь с технической поддержкой.');
-        }
-
-        $smartProcessDetail = $this->getSmartProcessDetail($authId, $domain, $type);
-
-        if(empty($smartProcessDetail)){
-            throw new \Exception('Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.');
-        }
+        $this->bitrixService->clearProductRow($smartProcessDetail['SYMBOL_CODE_SHORT']);
 
         foreach ($collection as $row) {
 
@@ -37,80 +35,34 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow
                 'price' => $row['cena']
             ];
 
-            $product = $this->addProduct($data['addProduct'], $authId, $domain);
+            Log::channel('importProduct')->debug('PRODUCT DATA: '.json_encode($data['addProduct']));
 
-            if(empty($product->result)) {
-                throw new \Exception('Ошибка при добавлении продукта. Свяжитесь с технической поддержкой.');
-            }
+            $product = $this->bitrixService->searchProduct($data['addProduct']);
 
             $data['addProductRow'] = [
-                'ownerId' => $objectId,
+                'ownerId' => $this->bitrixService->getObjectId(),
                 'ownerType' => $smartProcessDetail['SYMBOL_CODE_SHORT'],
-                'productId' => $product->result,
+                'productId' => $product,
                 'price' => $row['cena'],
                 'quantity' => $row['kol_vo']
             ];
 
-            $this->addProductRow($data['addProductRow'], $authId, $domain);
+            $this->bitrixService->addProductRow($data['addProductRow']);
 
-            //$deleteProduct = $this->deleteProduct($product->result, $authId, $domain);
-            //dd($data['addProductRow'], $productRow, $deleteProduct);
         }
     }
 
-    private function addProduct(array $data, string $auth, string $domain): ?object {
-        return Http::post("https://{$domain}/rest/crm.product.add", [
-            'auth' => $auth,
-            'fields' => [
-                "NAME" => $data['name'],
-			    "CURRENCY_ID" => "RUB",
-			    "PRICE" => $data['price'],
-            ]
-        ])->object();
+    public function chunkSize(): int
+    {
+        return 100;
     }
 
-    private function deleteProduct(int $productId, string $auth, string $domain): ?object {
-        return Http::post("https://{$domain}/rest/crm.product.delete", [
-            'auth' => $auth,
-            'id' => $productId,
-        ])->object();
-    }
-
-    private function addProductRow(array $data, string $auth, string $domain): ?object {
-        return Http::post("https://{$domain}/rest/crm.item.productrow.add", [
-            'auth' => $auth,
-            'fields' => [
-                "ownerId" => $data['ownerId'],
-                "ownerType" => $data['ownerType'],
-                "productId" => $data['productId'],
-                "price" => $data['price'],
-                "quantity" => $data['quantity'],
-            ]
-        ])->object();
-    }
-
-    private function getOwnerType(string $auth, string $domain) {
-        return Http::post("https://{$domain}/rest/crm.enum.ownertype", [
-            'auth' => $auth,
-        ])->json();
-    }
-
-    private function getSmartProcessDetail(string $auth, string $domain, string $type): array {
-        $ownerTypes = $this->getOwnerType($auth, $domain);
-        if(empty($ownerTypes['result'])){
-            throw new \Exception('Ошибка при получении ownerTypes. Свяжитесь с технической поддержкой.');
-        }
-        $ownerTypes = $ownerTypes['result'];
-        $ownerType = array_filter($ownerTypes, function ($item) use ($type) {
-            return $item['SYMBOL_CODE'] === $type;
-        });
-        if(empty($ownerType)){
-            throw new \Exception('Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.');
-        }
-        $firstItem = reset($ownerType);
+    public function registerEvents(): array
+    {
         return [
-            'ID' => $firstItem['ID'],
-            'SYMBOL_CODE_SHORT' => $firstItem['SYMBOL_CODE_SHORT'],
+            AfterImport::class => function(AfterImport $event) {
+                $this->bitrixService->sendNotify($this->bitrixService->getAssigned(), 'Импорт завершен!');
+            },
         ];
     }
 

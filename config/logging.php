@@ -58,6 +58,24 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        'deleteProductRow' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/deleteProductRow/'.date('d.m.Y').'-deleteProductRow.log'),
+            'level' => 'debug',
+        ],
+
+        'importProductRow' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/importProductRow/'.date('d.m.Y').'-importProductRow.log'),
+            'level' => 'debug',
+        ],
+
+        'importProduct' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/importProduct/'.date('d.m.Y').'-importProduct.log'),
+            'level' => 'debug',
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),

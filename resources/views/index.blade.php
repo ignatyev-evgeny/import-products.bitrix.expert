@@ -31,6 +31,7 @@
         <div id="alert-container"></div>
         <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
             <button type="button" class="btn btn-primary btn-lg px-4 gap-3" data-bs-toggle="modal" data-bs-target="#importModal">Импорт</button>
+            <a href="{{ route('export.process') }}" class="btn btn-warning btn-lg px-4">Экспорт</a>
             <a href="{{ asset('storage/import.xlsx') }}" download class="btn btn-outline-secondary btn-lg px-4">Пример</a>
         </div>
     </div>
@@ -46,6 +47,9 @@
             <div class="modal-body">
                 <form id="importForm" enctype="multipart/form-data">
                     @csrf
+                    <div class="alert alert-danger" role="alert">
+                        Обратите внимание, при импорте файла, все товарные позиции будет затерты новыми из импортируемого файла.
+                    </div>
                     <div class="mb-3">
                         <label for="formFile" class="form-label">Выберите файл Excel</label>
                         <input class="form-control" type="file" name="file" id="formFile" required>

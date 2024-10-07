@@ -23,7 +23,7 @@ class ExportProductRows implements FromArray, WithHeadings
     public function headings(): array
     {
         return [
-            '№', 'Наименование', 'Цена', 'Кол-во'
+            '№', 'Артикул', 'Бренд', 'Наименование', 'Цена', 'Кол-во'
         ];
     }
 

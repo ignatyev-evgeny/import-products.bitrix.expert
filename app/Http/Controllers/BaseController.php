@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Services\Bitrix24Service;
+use App\Models\Integration;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -11,7 +13,7 @@ class BaseController extends Controller {
     public function index(Request $request)
     {
 
-        if (preg_match('/DYNAMIC_\d+/', $request->PLACEMENT, $matches)) {
+        if (preg_match('/(DYNAMIC_\d+|CRM_DEAL_DETAIL_TAB)/', $request->PLACEMENT, $matches)) {
             $type = $matches[0];
         }
 
@@ -25,21 +27,50 @@ class BaseController extends Controller {
             abort(404, "objectId не определен");
         }
 
-        Cache::set('AUTH_ID', $request->AUTH_ID, $request->AUTH_EXPIRES);
+        $integration = Integration::where('domain', $request->DOMAIN)->first();
+
+        if(empty($integration)) {
+            abort(404, "Интеграция не найдена. Переустановите приложение.");
+        }
+
+        Cache::set('AUTH_ID', $integration->access_key, $request->AUTH_EXPIRES);
         Cache::set('DOMAIN', $request->DOMAIN, $request->AUTH_EXPIRES);
         Cache::set('TYPE', $type, $request->AUTH_EXPIRES);
         Cache::set('OBJECT_ID', $objectId, $request->AUTH_EXPIRES);
+
         return view('index');
     }
 
     public function eventHandler(Request $request) {
-        Log::debug(json_encode($request->all()));
+        Log::channel('eventHandler')->debug(json_encode($request->all()));
+
+        if(!empty($request['event']) && !empty($request['auth']['domain']) && $request['event'] == "ONAPPUNINSTALL") {
+            Integration::where('domain', $request['auth']['domain'])->delete();
+        }
+
     }
 
-    public function install(Request  $request) {
+    public function install(Request $request) {
 
-        $auth = $request->AUTH_ID;
-        $domain = $request->DOMAIN;
+//        dd($request->all());
+//abort(200);
+
+        Log::channel('installApplication')->debug(json_encode($request->all()));
+
+        $auth = $request->AUTH_ID ?? $request->auth['access_token'];
+        $refresh = $request->auth['refresh_token'] ?? null;
+        $domain = $request->DOMAIN ?? $request->auth['domain'];
+
+        if(empty($auth) || empty($domain)) {
+            abort(403, 'AUTH_ID и/или DOMAIN и/или TYPE не были переданы. Свяжитесь с технической поддержкой.');
+        }
+
+        $property['article'] = $this->createProductProperty("Артикул", $auth, $domain);
+        $property['brand'] = $this->createProductProperty("Бренд", $auth, $domain);
+
+        if(empty($property['article']['result']) || empty($property['brand']['result'])) {
+            abort(404, "Ошибка при создании свойств товара");
+        }
 
         $placementList = $this->listPlacement($auth, $domain);
 
@@ -47,6 +78,11 @@ class BaseController extends Controller {
         $availablePlacements = array_filter($placementList->result, function($item) use ($pattern) {
             return preg_match($pattern, $item);
         });
+
+        $availablePlacements[] = 'CRM_DEAL_DETAIL_TAB';
+
+        Log::channel('placementList')->debug(json_encode($availablePlacements));
+
 
         foreach ($availablePlacements as $placement) {
             $placementBindResponse = $this->bindPlacement($placement, $auth, $domain);
@@ -57,6 +93,16 @@ class BaseController extends Controller {
         }
 
         $this->setEventHandler($auth, "onCrmTypeAdd", $domain);
+        $this->setEventHandler($auth, "OnAppUninstall", $domain);
+
+        Integration::updateOrCreate([
+            'domain' => $domain
+        ], [
+            'access_key' => $auth,
+            'refresh_key' => $refresh,
+            'product_field_article' => $property['article']['result'],
+            'product_field_brand' => $property['brand']['result'],
+        ]);
 
         return view('install');
     }
@@ -69,18 +115,58 @@ class BaseController extends Controller {
             'HANDLER' => 'https://import-products.bitrix.expert',
             'LANG_ALL' => [
                 'ru' => [
-                    'TITLE' => 'Импорт24',
+                    'TITLE' => 'Импорт товаров',
                 ],
             ],
         ])->object();
     }
 
+    private function createProductProperty(string $name, string $auth, string $domain)
+    {
+
+        $requestData = [
+            'name' => $name,
+            'auth' => $auth,
+            'domain' => $domain
+        ];
+
+        Log::channel('createProductProperty')->debug("REQUEST: ".json_encode($requestData));
+
+        $result = Http::get("https://{$domain}/rest/crm.product.property.add", [
+            'auth' => $auth,
+            'FIELDS' => [
+                'ACTIVE' => 'Y',
+                'NAME' => $name,
+                'PROPERTY_TYPE' => 'S',
+            ]
+        ]);
+
+        $result = $result->json();
+
+        Log::channel('createProductProperty')->debug("RESPONSE: ".json_encode($result));
+        return $result;
+    }
+
     private function unbindPlacement(string $placement, string $auth, string $domain)
     {
-        return Http::get("https://{$domain}/rest/placement.unbind", [
+
+        $requestData = [
+            'name' => $placement,
+            'auth' => $auth,
+            'domain' => $domain
+        ];
+
+        Log::channel('unbindPlacement')->debug("REQUEST: ".json_encode($requestData));
+
+        $result = Http::get("https://{$domain}/rest/placement.unbind", [
             'auth' => $auth,
             'PLACEMENT' => $placement,
-        ])->object();
+        ]);
+
+        $result = $result->object();
+
+        Log::channel('unbindPlacement')->debug("RESPONSE: ".json_encode($result));
+        return $result;
     }
 
     private function getPlacement(string $auth, string $domain)

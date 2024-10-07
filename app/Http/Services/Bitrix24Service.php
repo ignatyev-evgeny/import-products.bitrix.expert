@@ -3,6 +3,7 @@
 namespace App\Http\Services;
 
 use App\Http\Controllers\Controller;
+use App\Models\Integration;
 use Exception;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -32,6 +33,11 @@ class Bitrix24Service extends Controller
     public function getObjectId(): string
     {
         return $this->objectId;
+    }
+
+    public function getDomain(): string
+    {
+        return $this->domain;
     }
 
     public function getAssigned(): array
@@ -87,7 +93,8 @@ class Bitrix24Service extends Controller
         $ownerTypes = $this->getOwnerType();
 
         if(empty($ownerTypes['result'])) {
-            $this->sendNotify($this->assigned,'Ошибка при получении ownerTypes. Свяжитесь с технической поддержкой.');
+            $this->sendNotify($this->getAssigned(),'Ошибка при получении ownerTypes. Свяжитесь с технической поддержкой.');
+            throw new Exception($ownerTypes['error_description'] ?? $ownerTypes['error']);
         }
 
         $type = $this->type;
@@ -97,15 +104,15 @@ class Bitrix24Service extends Controller
         });
 
         if(empty($ownerType)){
-            $this->sendNotify($this->assigned,'Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.');
-            return [];
+            $this->sendNotify($this->getAssigned(),'Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.');
+            throw new Exception('Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.');
         }
 
         $firstItem = reset($ownerType);
 
         if(empty($firstItem)) {
-            $this->sendNotify($this->assigned,'Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.');
-            return [];
+            $this->sendNotify($this->getAssigned(),'Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.');
+            throw new Exception('Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.');
         }
 
         $response = Http::post("https://{$this->domain}/rest/crm.item.get", [
@@ -117,8 +124,8 @@ class Bitrix24Service extends Controller
         $response = $response->json();
 
         if(empty($response['result']['item'])) {
-            $this->sendNotify($this->assigned,'Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.');
-            return [];
+            $this->sendNotify($this->getAssigned(),'Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.');
+            throw new Exception('Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.');
         }
 
         $this->assigned = [
@@ -182,17 +189,49 @@ class Bitrix24Service extends Controller
         }
     }
 
+    public function productDetail(int $productId) {
+        $response = Http::post("https://{$this->domain}/rest/crm.product.get", [
+            'auth' => $this->authId,
+            'id' => $productId,
+        ])->json();
+
+        if(empty($response['result'])) {
+            Log::channel('importProduct')->debug('Ошибка при получении информации о продукте: '.json_encode($response));
+            return null;
+        }
+
+        return $response['result'] ?? null;
+    }
+
+    public function productFields() {
+        $response = Http::post("https://{$this->domain}/rest/crm.product.fields", [
+            'auth' => $this->authId,
+        ])->json();
+
+        if(empty($response['result'])) {
+            Log::channel('importProduct')->debug('Ошибка при получении списка продуктов : '.json_encode($response));
+            return null;
+        }
+
+        return $response['result'] ?? null;
+    }
+
     public function addProduct(array $data): ?int {
+        $integration = Integration::where('domain', $this->domain)->first();
+
         $response = Http::post("https://{$this->domain}/rest/crm.product.add", [
             'auth' => $this->authId,
             'fields' => [
                 "NAME" => $data['name'],
                 "CURRENCY_ID" => "RUB",
                 "PRICE" => $data['price'],
+                "PROPERTY_".$integration->product_field_article => $data['article'],
+                "PROPERTY_".$integration->product_field_brand => $data['brand'],
             ]
         ])->json();
 
         if(empty($response['result'])) {
+            Log::channel('importProduct')->debug('Ошибка при добавлении продукта : '.json_encode($response));
             $this->sendNotify($this->assigned,'Ошибка при добавлении продукта. Свяжитесь с технической поддержкой.');
             return null;
         }
@@ -211,6 +250,7 @@ class Bitrix24Service extends Controller
         Log::channel('importProduct')->debug('RESPONSE : '.json_encode($response));
 
         if(!isset($response['result'])) {
+            Log::channel('importProduct')->debug('Ошибка при поиске продукта : '.json_encode($response));
             $this->sendNotify($this->assigned,'Ошибка при поиске продукта. Свяжитесь с технической поддержкой.');
             return null;
         }

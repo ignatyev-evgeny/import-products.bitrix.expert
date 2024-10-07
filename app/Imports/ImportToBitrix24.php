@@ -30,24 +30,30 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
 
         foreach ($collection as $row) {
 
-            $data['addProduct'] = [
-                'name' => $row['naimenovanie'],
-                'price' => $row['cena']
-            ];
+            if(!empty($row['naimenovanie'])) {
 
-            Log::channel('importProduct')->debug('PRODUCT DATA: '.json_encode($data['addProduct']));
+                $data['addProduct'] = [
+                    'article' => $row['artikul'],
+                    'brand' => $row['brend'],
+                    'name' => $row['naimenovanie'],
+                    'price' => $row['cena'],
+                ];
 
-            $product = $this->bitrixService->searchProduct($data['addProduct']);
+                Log::channel('importProduct')->debug('PRODUCT DATA: '.json_encode($data['addProduct']));
 
-            $data['addProductRow'] = [
-                'ownerId' => $this->bitrixService->getObjectId(),
-                'ownerType' => $smartProcessDetail['SYMBOL_CODE_SHORT'],
-                'productId' => $product,
-                'price' => $row['cena'],
-                'quantity' => $row['kol_vo']
-            ];
+                $product = $this->bitrixService->searchProduct($data['addProduct']);
 
-            $this->bitrixService->addProductRow($data['addProductRow']);
+                $data['addProductRow'] = [
+                    'ownerId' => $this->bitrixService->getObjectId(),
+                    'ownerType' => $smartProcessDetail['SYMBOL_CODE_SHORT'],
+                    'productId' => $product,
+                    'price' => $row['cena'],
+                    'quantity' => $row['kol_vo']
+                ];
+
+                $this->bitrixService->addProductRow($data['addProductRow']);
+
+            }
 
         }
     }

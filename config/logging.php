@@ -58,6 +58,36 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        'installApplication' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/installApplication.log'),
+            'level' => 'debug',
+        ],
+
+        'placementList' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/placementList.log'),
+            'level' => 'debug',
+        ],
+
+        'createProductProperty' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/createProductProperty.log'),
+            'level' => 'debug',
+        ],
+
+        'unbindPlacement' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/unbindPlacement.log'),
+            'level' => 'debug',
+        ],
+
+        'eventHandler' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/eventHandler.log'),
+            'level' => 'debug',
+        ],
+
         'deleteProductRow' => [
             'driver' => 'single',
             'path' => storage_path('logs/deleteProductRow/'.date('d.m.Y').'-deleteProductRow.log'),

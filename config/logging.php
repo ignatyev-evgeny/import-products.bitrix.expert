@@ -88,6 +88,12 @@ return [
             'level' => 'debug',
         ],
 
+        'ownerTypes' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/ownerTypes.log'),
+            'level' => 'debug',
+        ],
+
         'deleteProductRow' => [
             'driver' => 'single',
             'path' => storage_path('logs/deleteProductRow/'.date('d.m.Y').'-deleteProductRow.log'),
@@ -105,6 +111,8 @@ return [
             'path' => storage_path('logs/importProduct/'.date('d.m.Y').'-importProduct.log'),
             'level' => 'debug',
         ],
+
+
 
         'single' => [
             'driver' => 'single',

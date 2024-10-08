@@ -99,6 +99,9 @@ class Bitrix24Service extends Controller
 
         $type = $this->type;
         $ownerTypes = $ownerTypes['result'];
+
+        Log::channel('ownerTypes')->debug(json_encode($ownerTypes));
+
         $ownerType = array_filter($ownerTypes, function ($item) use ($type) {
             return $item['SYMBOL_CODE'] === $type;
         });

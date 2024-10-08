@@ -14,7 +14,10 @@ class BaseController extends Controller {
     {
 
         if (preg_match('/(DYNAMIC_\d+|CRM_DEAL_DETAIL_TAB)/', $request->PLACEMENT, $matches)) {
-            $type = $matches[0];
+            $type = match ($matches[0]) {
+                'CRM_DEAL_DETAIL_TAB' => 'DEAL',
+                default => $matches[0]
+            };
         }
 
         if(empty($type) || empty($request->PLACEMENT_OPTIONS)) {

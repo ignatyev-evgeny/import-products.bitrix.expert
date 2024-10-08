@@ -39,23 +39,34 @@ class updateAccessTokenCommand extends Command {
                 $errorShort = ! empty($responseObject->error) ? $responseObject->error : '';
                 $errorDescription = ! empty($responseObject->error_description) ? $responseObject->error_description : '';
                 $message = 'Ошибка соединения с порталом. '.$integration->domain.' Получен статус код: '.$response->status().". Причина: $errorShort - $errorDescription";
-                Log::critical($message);
-                return;
+                $this->errorLog($message);
+                continue;
             }
 
             $tokens = $response->object();
 
             if (empty($tokens->access_token) || empty($tokens->refresh_token)) {
                 $message = 'Ошибка при получении access_token и/или refresh_token';
-                Log::critical($message);
-                return;
+                $this->errorLog($message);
+                continue;
             }
 
             $integration->access_key = $tokens->access_token;
             $integration->refresh_key = $tokens->refresh_token;
             $integration->save();
 
+            $this->successLog("Токен на портале {$integration->domain} успешно обновлен");
+
         }
 
+    }
+
+    private function successLog(string $message): void {
+        $this->info($message);
+    }
+
+    private function errorLog(string $message): void {
+        $this->error($message);
+        Log::critical($message);
     }
 }

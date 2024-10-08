@@ -174,6 +174,54 @@ class Bitrix24Service extends Controller
         return true;
     }
 
+    public function clearProductRowBatch(string $ownerType): bool
+    {
+        do {
+
+            $response = Http::post("https://{$this->domain}/rest/crm.item.productrow.list", [
+                'auth' => $this->authId,
+                'filter' => [
+                    "=ownerId" => $this->objectId,
+                    "=ownerType" => $ownerType,
+                ]
+            ])->json();
+
+            if (!isset($response['result']['productRows'])) {
+                $this->sendNotify($this->assigned, 'Ошибка при получении списка товарных позиций. Свяжитесь с технической поддержкой.');
+                return false;
+            }
+
+            $productRows = $response['result']['productRows'];
+
+            if (!empty($productRows)) {
+                $batchRequests = [];
+                foreach ($productRows as $key => $productRow) {
+                    $batchRequests["delete_{$key}"] = [
+                        'method' => 'crm.item.productrow.delete',
+                        'params' => [
+                            'id' => $productRow['id'],
+                        ]
+                    ];
+                }
+
+                $batchResponse = Http::post("https://{$this->domain}/rest/batch", [
+                    'auth' => $this->authId,
+                    'cmd' => $batchRequests,
+                ])->json();
+
+                if (!isset($batchResponse['result']) || !empty($batchResponse['result']['error'])) {
+                    $this->sendNotify($this->assigned, 'Ошибка при удалении товарных позиций. Свяжитесь с технической поддержкой.');
+                    return false;
+                }
+            }
+
+        } while (!empty($productRows));
+
+        $this->sendNotify($this->assigned, 'Товарные позиции успешно очищены. Начинаю импортировать новые товарные позиции.');
+
+        return true;
+    }
+
     public function deleteProductRow(int $productRow): void
     {
 

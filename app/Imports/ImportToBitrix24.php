@@ -26,7 +26,7 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
     {
         $smartProcessDetail = $this->bitrixService->getSmartProcessDetail();
 
-        $this->bitrixService->clearProductRow($smartProcessDetail['SYMBOL_CODE_SHORT']);
+        $this->bitrixService->clearProductRowBatch($smartProcessDetail['SYMBOL_CODE_SHORT']);
 
         foreach ($collection as $row) {
 

@@ -28,6 +28,9 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
 
         $this->bitrixService->clearProductRowBatch($smartProcessDetail['SYMBOL_CODE_SHORT']);
 
+        Log::channel('importProduct')->debug('COLLECTION: '.$collection->toJson());
+
+
         foreach ($collection as $row) {
 
             if(!empty($row['naimenovanie'])) {

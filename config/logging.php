@@ -107,12 +107,16 @@ return [
         ],
 
         'importProduct' => [
-            'driver' => 'single',
-            'path' => storage_path('logs/importProduct/'.date('d.m.Y').'-importProduct.log'),
+            'driver' => 'daily',
+            'path' => storage_path('logs/importProduct.log'),
             'level' => 'debug',
         ],
 
-
+        'searchProduct' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/searchProduct.log'),
+            'level' => 'debug',
+        ],
 
         'single' => [
             'driver' => 'single',

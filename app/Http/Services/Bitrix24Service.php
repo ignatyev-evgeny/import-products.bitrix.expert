@@ -291,22 +291,37 @@ class Bitrix24Service extends Controller
     }
 
     public function searchProduct(array $data): ?int {
+
+        $integration = Integration::where('domain', $this->domain)->first();
+
+        if(!empty($data['article'])) {
+            $searchArray = [
+                "NAME" => $data['name'],
+                "PROPERTY_".$integration->product_field_article => $data['article']
+            ];
+        } else {
+            $searchArray = [
+                "NAME" => $data['name']
+            ];
+        }
+
         $response = Http::post("https://{$this->domain}/rest/crm.product.list", [
             'auth' => $this->authId,
-            'filter' => [
-                "NAME" => $data['name'],
-            ]
+            'filter' => $searchArray
         ])->json();
 
-        Log::channel('importProduct')->debug('RESPONSE : '.json_encode($response));
+        Log::channel('searchProduct')->debug('DOMAIN : '.$this->domain);
+        Log::channel('searchProduct')->debug('REQUEST : '.json_encode($searchArray));
+        Log::channel('searchProduct')->debug('RESPONSE : '.json_encode($response));
 
         if(!isset($response['result'])) {
-            Log::channel('importProduct')->debug('Ошибка при поиске продукта : '.json_encode($response));
+            Log::channel('searchProduct')->debug('Ошибка при поиске продукта : '.json_encode($response));
             $this->sendNotify($this->assigned,'Ошибка при поиске продукта. Свяжитесь с технической поддержкой.');
             return null;
         }
 
         if(count($response['result']) > 1) {
+            Log::channel('searchProduct')->debug('Продукт с именем "' . $data['name'] . '" уже существует, в кол-ве больше одной единицы. Дальнейший импорт невозможен.');
             $this->sendNotify($this->assigned,'Продукт с именем "' . $data['name'] . '" уже существует, в кол-ве больше одной единицы. Дальнейший импорт невозможен.');
             return null;
         }
@@ -316,6 +331,7 @@ class Bitrix24Service extends Controller
         }
 
         if(empty($product) && empty($response['result'][0]['ID'])) {
+            Log::channel('searchProduct')->debug('Ошибка при поиске и/или создании продукта. Свяжитесь с технической поддержкой.');
             $this->sendNotify($this->assigned,'Ошибка при поиске и/или создании продукта. Свяжитесь с технической поддержкой.');
             return null;
         }

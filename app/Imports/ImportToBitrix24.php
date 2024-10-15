@@ -11,6 +11,7 @@ use Maatwebsite\Excel\Concerns\WithChunkReading;
 use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Events\AfterImport;
+use Maatwebsite\Excel\Events\BeforeImport;
 
 class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading, ShouldQueue, WithEvents
 {
@@ -26,13 +27,11 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
     {
         $smartProcessDetail = $this->bitrixService->getSmartProcessDetail();
 
-        $this->bitrixService->clearProductRowBatch($smartProcessDetail['SYMBOL_CODE_SHORT']);
+        $filteredCollection = $collection->filter(function ($row) {
+            return $row->filter()->isNotEmpty();
+        });
 
-        Log::channel('importProduct')->debug('COLLECTION: '.$collection->toJson());
-
-
-        foreach ($collection as $row) {
-
+        foreach ($filteredCollection as $row) {
             if(!empty($row['naimenovanie'])) {
 
                 $data['addProduct'] = [
@@ -41,8 +40,6 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
                     'name' => $row['naimenovanie'],
                     'price' => $row['cena'],
                 ];
-
-                Log::channel('importProduct')->debug('PRODUCT DATA: '.json_encode($data['addProduct']));
 
                 $product = $this->bitrixService->searchProduct($data['addProduct']);
 
@@ -57,22 +54,24 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
                 $this->bitrixService->addProductRow($data['addProductRow']);
 
             }
-
         }
     }
 
     public function chunkSize(): int
     {
-        return 100;
+        return 10000;
     }
 
     public function registerEvents(): array
     {
         return [
+            BeforeImport::class => function(BeforeImport $event) {
+                $smartProcessDetail = $this->bitrixService->getSmartProcessDetail();
+                $this->bitrixService->clearProductRow($smartProcessDetail['SYMBOL_CODE_SHORT']);
+            },
             AfterImport::class => function(AfterImport $event) {
                 $this->bitrixService->sendNotify($this->bitrixService->getAssigned(), 'Импорт завершен!');
             },
         ];
     }
-
 }

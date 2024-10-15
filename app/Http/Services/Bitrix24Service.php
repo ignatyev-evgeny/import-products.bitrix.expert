@@ -294,15 +294,16 @@ class Bitrix24Service extends Controller
 
         $integration = Integration::where('domain', $this->domain)->first();
 
-        if(!empty($data['article'])) {
-            $searchArray = [
-                "NAME" => $data['name'],
-                "PROPERTY_".$integration->product_field_article => $data['article']
-            ];
-        } else {
-            $searchArray = [
-                "NAME" => $data['name']
-            ];
+        $searchArray = [
+            "NAME" => $data['name']
+        ];
+
+        if (!empty($data['article'])) {
+            $searchArray["PROPERTY_".$integration->product_field_article] = $data['article'];
+        }
+
+        if (!empty($data['brand'])) {
+            $searchArray["PROPERTY_".$integration->product_field_brand] = $data['brand'];
         }
 
         $response = Http::post("https://{$this->domain}/rest/crm.product.list", [

@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exports\ExportProductRows;
 use App\Http\Services\Bitrix24Service;
-use App\Imports\ImportToBitrix24;
+use App\Jobs\ProcessImportJob;
 use App\Models\Integration;
 use Exception;
 use Illuminate\Http\Request;
@@ -27,7 +27,9 @@ class SyncController extends Controller {
 
         try {
             $this->bitrixService->getSmartProcessDetail();
-            Excel::queueImport(new ImportToBitrix24($this->bitrixService), storage_path('app/' . $request->file('file')->store('temp')));
+            $filePath = storage_path('app/' . $request->file('file')->store('temp'));
+            ProcessImportJob::dispatch($filePath, $this->bitrixService);
+
             $this->bitrixService->sendNotify($this->bitrixService->getAssigned(), 'Файл добавлен в очередь на обработку.');
             return response()->json(['message' => 'Файл добавлен в очередь на обработку.']);
         } catch (Exception $exception) {

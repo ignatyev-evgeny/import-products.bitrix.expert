@@ -4,12 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Http\Services\Bitrix24Service;
 use App\Models\Integration;
+use App\Models\IntegrationField;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class BaseController extends Controller {
+
+    public const PROPERTY_NAME_AVAILABLE = ['Артикул', 'Бренд'];
+
     public function index(Request $request)
     {
 
@@ -55,9 +60,6 @@ class BaseController extends Controller {
 
     public function install(Request $request) {
 
-//        dd($request->all());
-//abort(200);
-
         Log::channel('installApplication')->debug(json_encode($request->all()));
 
         $auth = $request->AUTH_ID ?? $request->auth['access_token'];
@@ -68,10 +70,10 @@ class BaseController extends Controller {
             abort(403, 'AUTH_ID и/или DOMAIN и/или TYPE не были переданы. Свяжитесь с технической поддержкой.');
         }
 
-        $property['article'] = $this->createProductProperty("Артикул", $auth, $domain);
-        $property['brand'] = $this->createProductProperty("Бренд", $auth, $domain);
+        $property['article'] = $this->getOrCreateProductProperty("Артикул", $auth, $domain, 'article');
+        $property['brand'] = $this->getOrCreateProductProperty("Бренд", $auth, $domain, 'brand');
 
-        if(empty($property['article']['result']) || empty($property['brand']['result'])) {
+        if(empty($property['article']) || empty($property['brand'])) {
             abort(404, "Ошибка при создании свойств товара");
         }
 
@@ -103,8 +105,8 @@ class BaseController extends Controller {
         ], [
             'access_key' => $auth,
             'refresh_key' => $refresh,
-            'product_field_article' => $property['article']['result'],
-            'product_field_brand' => $property['brand']['result'],
+            'product_field_article' => $property['article'],
+            'product_field_brand' => $property['brand'],
         ]);
 
         return view('install');
@@ -124,18 +126,20 @@ class BaseController extends Controller {
         ])->object();
     }
 
-    private function createProductProperty(string $name, string $auth, string $domain)
+    private function getOrCreateProductProperty(string $name, string $auth, string $domain, string $type)
     {
 
-        $requestData = [
-            'name' => $name,
-            'auth' => $auth,
-            'domain' => $domain
-        ];
+        $integrationFields = IntegrationField::where('domain', $domain)->first();
 
-        Log::channel('createProductProperty')->debug("REQUEST: ".json_encode($requestData));
 
-        $result = Http::get("https://{$domain}/rest/crm.product.property.add", [
+        if(!empty($integrationFields->article) && !empty($integrationFields->brand)) {
+            return match ($type) {
+                'article' => $this->checkIssetProductProperty($integrationFields->article, $auth, $domain, $name, $type),
+                'brand' => $this->checkIssetProductProperty($integrationFields->brand, $auth, $domain, $name, $type)
+            };
+        }
+
+        $response = Http::get("https://{$domain}/rest/crm.product.property.add", [
             'auth' => $auth,
             'FIELDS' => [
                 'ACTIVE' => 'Y',
@@ -144,10 +148,64 @@ class BaseController extends Controller {
             ]
         ]);
 
-        $result = $result->json();
+        if ($response->failed()) {
+            throw new Exception("Ошибка соединения с порталом {$domain}");
+        }
 
-        Log::channel('createProductProperty')->debug("RESPONSE: ".json_encode($result));
+        $result = $response->json()['result'];
+
+        IntegrationField::updateOrCreate([
+            'domain' => $domain
+        ], [
+            $type => $result,
+        ]);
+
         return $result;
+    }
+
+    private function checkIssetProductProperty(int $property, string $auth, string $domain, string $name, string $type)
+    {
+
+        $response = Http::get("https://{$domain}/rest/crm.product.property.get", [
+            'auth' => $auth,
+            'id' => $property,
+        ]);
+
+
+        if ($response->failed()) {
+            throw new Exception("Ошибка соединения с порталом {$domain}");
+        }
+
+        $propertyData = $response->json()['result'];
+
+
+        if(!empty($propertyData) && in_array($propertyData['NAME'], self::PROPERTY_NAME_AVAILABLE) && $propertyData['ACTIVE'] = 'Y' && $propertyData['PROPERTY_TYPE'] == 'S') {
+            return $propertyData['ID'];
+        }
+
+        $response = Http::get("https://{$domain}/rest/crm.product.property.add", [
+            'auth' => $auth,
+            'FIELDS' => [
+                'ACTIVE' => 'Y',
+                'NAME' => $name,
+                'PROPERTY_TYPE' => 'S',
+            ]
+        ]);
+
+        if ($response->failed()) {
+            throw new Exception("Ошибка соединения с порталом {$domain}");
+        }
+
+        $result = $response->json()['result'];
+
+        IntegrationField::updateOrCreate([
+            'domain' => $domain
+        ], [
+            $type => $result,
+        ]);
+
+        return $result;
+
     }
 
     private function unbindPlacement(string $placement, string $auth, string $domain)

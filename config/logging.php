@@ -112,6 +112,18 @@ return [
             'level' => 'debug',
         ],
 
+        'clearProductRow' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/clearProductRow.log'),
+            'level' => 'debug',
+        ],
+
+        'backtrace' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/backtrace.log'),
+            'level' => 'debug',
+        ],
+
         'searchProduct' => [
             'driver' => 'daily',
             'path' => storage_path('logs/searchProduct.log'),

@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote')->hourly();
 
 Schedule::command(updateAccessTokenCommand::class)->everyFifteenMinutes();
+Schedule::command('horizon:snapshot')->everyFiveMinutes();

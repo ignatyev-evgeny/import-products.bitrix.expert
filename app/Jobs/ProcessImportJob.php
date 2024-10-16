@@ -18,6 +18,8 @@ class ProcessImportJob implements ShouldQueue
     public $filePath;
     public $bitrixService;
 
+    public $timeout = 3600;
+
     public function __construct($filePath, Bitrix24Service $bitrixService)
     {
         $this->filePath = $filePath;

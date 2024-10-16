@@ -18,6 +18,8 @@ class ImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkReading
 
     private Bitrix24Service $bitrixService;
 
+    public $timeout = 3600;
+
     public function __construct(Bitrix24Service $bitrixService)
     {
         $this->bitrixService = $bitrixService;

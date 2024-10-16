@@ -29,7 +29,7 @@
     </style>
 </head>
 <body>
-<main class="ps-3 pt-3 pe-3 pb-3">
+<main class="ps-5 pt-3 pe-5 pb-3">
     <div class="row">
         <div id="alert-container"></div>
     </div>

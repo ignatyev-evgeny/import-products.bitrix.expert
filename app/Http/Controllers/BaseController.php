@@ -46,7 +46,18 @@ class BaseController extends Controller {
         Cache::set('TYPE', $type, $request->AUTH_EXPIRES);
         Cache::set('OBJECT_ID', $objectId, $request->AUTH_EXPIRES);
 
-        return view('index');
+        $availablePlacements = $this->listProcess($integration->access_key, $request->DOMAIN);
+
+        if($request->DOMAIN != 'eugenekulakov.bitrix24.ru111') {
+            return view('index', [
+                'availablePlacements' => $availablePlacements,
+            ]);
+        }
+
+        return view('newIndex', [
+            'availablePlacements' => $availablePlacements,
+        ]);
+
     }
 
     public function eventHandler(Request $request) {
@@ -77,12 +88,7 @@ class BaseController extends Controller {
             abort(404, "Ошибка при создании свойств товара");
         }
 
-        $placementList = $this->listPlacement($auth, $domain);
-
-        $pattern = '/^CRM_DYNAMIC_\d+_DETAIL_TAB$/';
-        $availablePlacements = array_filter($placementList->result, function($item) use ($pattern) {
-            return preg_match($pattern, $item);
-        });
+        $availablePlacements = $this->getAvailablePlacements($auth, $domain);
 
         $availablePlacements[] = 'CRM_DEAL_DETAIL_TAB';
 
@@ -130,7 +136,6 @@ class BaseController extends Controller {
     {
 
         $integrationFields = IntegrationField::where('domain', $domain)->first();
-
 
         if(!empty($integrationFields->article) && !empty($integrationFields->brand)) {
             return match ($type) {
@@ -230,18 +235,55 @@ class BaseController extends Controller {
         return $result;
     }
 
-    private function getPlacement(string $auth, string $domain)
-    {
-        return Http::get("https://{$domain}/rest/placement.get", [
-            'auth' => $auth,
-        ])->object();
-    }
-
     private function listPlacement(string $auth, string $domain)
     {
         return Http::get("https://{$domain}/rest/placement.list", [
             'auth' => $auth,
         ])->object();
+    }
+
+    private function listProcess(string $auth, string $domain)
+    {
+        $response = Http::get("https://{$domain}/rest/crm.type.list", [
+            'auth' => $auth,
+        ]);
+
+        if ($response->failed()) {
+            throw new Exception("Ошибка соединения с порталом {$domain}");
+        }
+
+        $availablePlacements = [];
+
+        foreach ($this->getAvailablePlacements($auth, $domain) as $key => $value) {
+            preg_match('/(\d+)/', $value, $matches);
+            $entityTypeId = $matches[1];
+            foreach ($response->json()['result']['types'] as $item) {
+                if ($item['entityTypeId'] == $entityTypeId) {
+                    $availablePlacements[$value] = [
+                        'id' => $item['id'],
+                        'title' => $item['title'],
+                        'entityTypeId' => $item['entityTypeId']
+                    ];
+                    break;
+                }
+            }
+        }
+
+        return $availablePlacements;
+
+    }
+
+
+
+    private function getAvailablePlacements(string $auth, string $domain) {
+        $placementList = $this->listPlacement($auth, $domain);
+
+        $pattern = '/^CRM_DYNAMIC_\d+_DETAIL_TAB$/';
+        $availablePlacements = array_filter($placementList->result, function($item) use ($pattern) {
+            return preg_match($pattern, $item);
+        });
+
+        return $availablePlacements;
     }
 
     private function setEventHandler(string $auth, string $event, string $domain)

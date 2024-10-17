@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\FeedbackMail;
 use App\Models\Integration;
 use App\Models\IntegrationField;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Mail;
 
 class BaseController extends Controller {
 
@@ -128,6 +130,27 @@ class BaseController extends Controller {
         ]);
 
         return view('install');
+    }
+
+    public function feedback(Request $request)
+    {
+        if(empty($request->domain) || empty($request->email) || empty($request->reason) || empty($request->message)) {
+            return response()->json([
+                'message' => 'Все поля обязательны для заполнения!'
+            ], 400);
+        }
+
+        $validated = $request->validate([
+            'domain' => 'required|string',
+            'email' => 'required|email',
+            'reason' => 'required|string',
+            'message' => 'required|string',
+        ]);
+
+        Mail::to('support@mee.team')->send(new FeedbackMail($validated));
+        return response()->json([
+            'message' => 'Ваше сообщение успешно отправлено!'
+        ]);
     }
 
     /** Функция для установки приложения в смарт процессы */

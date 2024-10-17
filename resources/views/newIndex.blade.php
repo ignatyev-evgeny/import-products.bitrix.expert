@@ -79,18 +79,18 @@
                 <div class="tab-pane fade show active" id="pills-home" role="tabpanel" aria-labelledby="pills-home-tab" tabindex="0">
                     <div class="card">
                         <div class="card-body">
-                            <form>
+                            <form id="feedbackForm">
                                 <div class="mb-3">
                                     <label for="domain" class="form-label">Домен портала</label>
                                     <input readonly type="text" name="domain" class="form-control" id="domain" value="{{ $domain }}">
                                 </div>
                                 <div class="mb-3">
-                                    <label for="exampleInputEmail1" class="form-label">Ваш Email</label>
-                                    <input type="email" class="form-control" id="exampleInputEmail1">
+                                    <label for="email" class="form-label">Ваш Email</label>
+                                    <input type="email" name="email" class="form-control" id="email">
                                 </div>
                                 <div class="mb-3">
                                     <label for="reason" class="form-label">Тема обращения</label>
-                                    <select class="form-select" id="reason">
+                                    <select name="reason" class="form-select" id="reason">
                                         <option value="Обратная связь" selected>Обратная связь</option>
                                         <option value="Требуется доработка">Требуется доработка</option>
                                         <option value="Идеи и предложения">Идеи и предложения</option>
@@ -99,10 +99,11 @@
                                 </div>
                                 <div class="mb-3">
                                     <label for="message" class="form-label">Текст обращения</label>
-                                    <textarea class="form-control" id="message" rows="3"></textarea>
+                                    <textarea name="message" class="form-control" id="message" rows="3"></textarea>
                                 </div>
-                                <button type="submit" class="btn btn-primary w-100">Отправить</button>
+                                <button type="button" id="submitBtn" class="btn btn-primary w-100">Отправить</button>
                             </form>
+                            <div id="alert-feedback-container" class="mt-3"></div>
                         </div>
                         <div class="card-footer text-body-secondary text-center">
                             или свяжитесь с нами через <a target="_blank" href="https://t.me/meeteam_support">Telegram</a>
@@ -211,6 +212,30 @@
                         $('#loading-spinner').addClass('d-none');
                         $('#overlay').addClass('d-none');
                         $('#alert-container').html('<div class="alert alert-danger text-center">' + xhr.responseJSON.message + '</div>');
+                    }
+                });
+            });
+
+            $('#submitBtn').on('click', function(e) {
+                e.preventDefault();
+
+                var formData = {
+                    domain: $('#domain').val(),
+                    email: $('#email').val(),
+                    reason: $('#reason').val(),
+                    message: $('#message').val(),
+                };
+
+                $.ajax({
+                    url: '{{ route("feedback") }}',
+                    type: 'POST',
+                    data: formData,
+                    success: function(response) {
+                        $('#feedbackForm')[0].reset();
+                        $('#alert-feedback-container').html('<div class="alert alert-success text-center">' + response.message + '</div>');
+                    },
+                    error: function(xhr) {
+                        $('#alert-feedback-container').html('<div class="alert alert-danger text-center">' + xhr.responseJSON.message + '</div>');
                     }
                 });
             });

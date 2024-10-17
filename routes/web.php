@@ -10,3 +10,4 @@ Route::any('/install', [BaseController::class, 'install'])->withoutMiddleware(Ve
 Route::post('/import', [SyncController::class, 'importProcess'])->withoutMiddleware(VerifyCsrfToken::class)->name('import.process');
 Route::any('/export', [SyncController::class, 'exportProcess'])->withoutMiddleware(VerifyCsrfToken::class)->name('export.process');
 Route::any('/event/handler', [BaseController::class, 'eventHandler'])->withoutMiddleware(VerifyCsrfToken::class)->name('eventHandler');
+Route::post('/feedback', [BaseController::class, 'feedback'])->withoutMiddleware(VerifyCsrfToken::class)->name('feedback');

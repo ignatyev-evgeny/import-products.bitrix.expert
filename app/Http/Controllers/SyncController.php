@@ -36,6 +36,13 @@ class SyncController extends Controller {
             $filePath = storage_path('app/' . $request->file('file')->store('temp'));
 
             if (Cache::has($request->objectID.'_import_in_progress')) {
+                $this->bitrixService->sendNotify(
+                    $this->bitrixService->getAssigned(),
+                    'Импорт уже выполняется. Пожалуйста, дождитесь завершения.',
+                    $this->bitrixService->getDomain(),
+                    $this->bitrixService->getAuthID()
+                );
+
                 return response()->json([
                     'message' => 'Импорт уже выполняется. Пожалуйста, дождитесь завершения.'
                 ], 429);

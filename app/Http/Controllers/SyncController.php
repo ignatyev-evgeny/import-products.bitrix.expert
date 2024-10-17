@@ -38,7 +38,9 @@ class SyncController extends Controller {
             );
             $this->bitrixService->sendNotify(
                 $this->bitrixService->getAssigned(),
-                'Файл добавлен в очередь на обработку.'
+                'Файл добавлен в очередь на обработку.',
+                $this->bitrixService->getDomain(),
+                $this->bitrixService->getAuthID()
             );
             return response()->json([
                 'message' => 'Файл добавлен в очередь на обработку.'

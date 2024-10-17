@@ -6,7 +6,6 @@ use App\Models\Integration;
 use App\Models\IntegrationField;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class BaseController extends Controller {
@@ -127,16 +126,22 @@ class BaseController extends Controller {
     /** Функция для установки приложения в смарт процессы */
     private function bindPlacement(string $placement, string $auth, string $domain)
     {
-        return $this->executeQuery($domain,"placement.bind", "GET", [
-            'auth' => $auth,
-            'PLACEMENT' => $placement,
-            'HANDLER' => self::PLACEMENT_HANDLER_URL,
-            'LANG_ALL' => [
-                'ru' => [
-                    'TITLE' => self::PLACEMENT_HANDLER_NAME,
+        return $this->executeQuery(
+            $domain,
+            $auth,
+            "placement.bind",
+            "GET",
+            [
+                'auth' => $auth,
+                'PLACEMENT' => $placement,
+                'HANDLER' => self::PLACEMENT_HANDLER_URL,
+                'LANG_ALL' => [
+                    'ru' => [
+                        'TITLE' => self::PLACEMENT_HANDLER_NAME,
+                    ],
                 ],
-            ],
-        ]);
+            ]
+        );
     }
 
     private function getOrCreateProductProperty(string $name, string $auth, string $domain, string $type)
@@ -150,14 +155,20 @@ class BaseController extends Controller {
             };
         }
 
-        $result = $this->executeQuery($domain,"crm.product.property.add", "GET", [
-            'auth' => $auth,
-            'FIELDS' => [
-                'ACTIVE' => 'Y',
-                'NAME' => $name,
-                'PROPERTY_TYPE' => 'S',
+        $result = $this->executeQuery(
+            $domain,
+            $auth,
+            "crm.product.property.add",
+            "GET",
+            [
+                'auth' => $auth,
+                'FIELDS' => [
+                    'ACTIVE' => 'Y',
+                    'NAME' => $name,
+                    'PROPERTY_TYPE' => 'S',
+                ]
             ]
-        ]);
+        );
 
         IntegrationField::updateOrCreate([
             'domain' => $domain
@@ -171,23 +182,35 @@ class BaseController extends Controller {
     private function checkOrCreateProductProperty(int $property, string $auth, string $domain, string $name, string $type)
     {
 
-        $propertyData = $this->executeQuery($domain,"crm.product.property.get", "GET", [
-            'auth' => $auth,
-            'id' => $property,
-        ]);
+        $propertyData = $this->executeQuery(
+            $domain,
+            $auth,
+            "crm.product.property.get",
+            "GET",
+            [
+                'auth' => $auth,
+                'id' => $property,
+            ]
+        );
 
         if(!empty($propertyData) && in_array($propertyData['NAME'], self::PROPERTY_NAME_AVAILABLE) && $propertyData['ACTIVE'] = 'Y' && $propertyData['PROPERTY_TYPE'] == 'S') {
             return $propertyData['ID'];
         }
 
-        $result = $this->executeQuery($domain,"crm.product.property.add", "GET", [
-            'auth' => $auth,
-            'FIELDS' => [
-                'ACTIVE' => 'Y',
-                'NAME' => $name,
-                'PROPERTY_TYPE' => 'S',
+        $result = $this->executeQuery(
+            $domain,
+            $auth,
+            "crm.product.property.add",
+            "GET",
+            [
+                'auth' => $auth,
+                'FIELDS' => [
+                    'ACTIVE' => 'Y',
+                    'NAME' => $name,
+                    'PROPERTY_TYPE' => 'S',
+                ]
             ]
-        ]);
+        );
 
         IntegrationField::updateOrCreate([
             'domain' => $domain
@@ -201,28 +224,46 @@ class BaseController extends Controller {
 
     private function unbindPlacement(string $placement, string $auth, string $domain): void
     {
-        $this->executeQuery($domain, "placement.unbind", "GET", [
-            'auth' => $auth,
-            'PLACEMENT' => $placement
-        ]);
+        $this->executeQuery(
+            $domain,
+            $auth,
+            "placement.unbind",
+            "GET",
+            [
+                'auth' => $auth,
+                'PLACEMENT' => $placement
+            ]
+        );
     }
 
     private function listPlacement(string $auth, string $domain)
     {
-        return $this->executeQuery($domain,"placement.list", "GET", [
-            'auth' => $auth,
-        ]);
+        return $this->executeQuery(
+            $domain,
+            $auth,
+            "placement.list",
+            "GET",
+            [
+                'auth' => $auth,
+            ]
+        );
     }
 
     private function listProcess(string $auth, string $domain)
     {
-        $response = $this->executeQuery($domain,"crm.type.list", "GET", [
-            'auth' => $auth,
-        ]);
+        $response = $this->executeQuery(
+            $domain,
+            $auth,
+            "crm.type.list",
+            "GET",
+            [
+                'auth' => $auth,
+            ]
+        );
 
         $availablePlacements = [];
 
-        foreach ($this->getAvailablePlacements($auth, $domain) as $key => $value) {
+        foreach ($this->getAvailablePlacements($auth, $domain) as $value) {
             preg_match('/(\d+)/', $value, $matches);
             $entityTypeId = $matches[1];
             foreach ($response['types'] as $item) {
@@ -250,25 +291,17 @@ class BaseController extends Controller {
 
     private function setEventHandler(string $auth, string $event, string $domain): void
     {
-        $this->executeQuery($domain, "event.bind.json", "GET", [
-            'auth' => $auth,
-            'event' => $event,
-            'handler' => self::EVENT_HANDLER_URL,
-        ]);
-    }
-
-    private function executeQuery(string $domain, string $endpoint, string $method, array $data)
-    {
-        $request = match ($method) {
-            'GET' => Http::timeout(120)->get("https://{$domain}/rest/{$endpoint}", $data),
-            'POST' => Http::timeout(120)->post("https://{$domain}/rest/{$endpoint}", $data),
-        };
-
-        if ($request->failed()) {
-            abort(503, "Ошибка соединения с порталом {$domain}");
-        }
-
-        return $request->json()['result'];
+        $this->executeQuery(
+            $domain,
+            $auth,
+            "event.bind.json",
+            "GET",
+            [
+                'auth' => $auth,
+                'event' => $event,
+                'handler' => self::EVENT_HANDLER_URL,
+            ]
+        );
     }
 
 }

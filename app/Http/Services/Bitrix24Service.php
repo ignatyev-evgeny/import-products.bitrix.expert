@@ -4,10 +4,7 @@ namespace App\Http\Services;
 
 use App\Http\Controllers\Controller;
 use App\Models\Integration;
-use Exception;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class Bitrix24Service extends Controller
 {
@@ -17,16 +14,32 @@ class Bitrix24Service extends Controller
     private mixed $domain;
     private mixed $authId;
     private array $assigned;
+    private int $batchSize;
+    private Integration $integration;
 
-    public function __construct()
+    public function __construct(string $domain)
     {
-        $this->authId = Cache::get('AUTH_ID');
-        $this->domain = Cache::get('DOMAIN');
-        $this->type = Cache::get('TYPE');
-        $this->objectId = Cache::get('OBJECT_ID');
+        $integration = Integration::where('domain', $domain)->first();
+
+        if(empty($integration)) {
+            abort(
+                404,
+                "Интеграция не найдена. Переустановите приложение."
+            );
+        }
+
+        $this->authId = Cache::get($integration->id.'_AUTH_ID');
+        $this->domain = Cache::get($integration->id.'_DOMAIN');
+        $this->type = Cache::get($integration->id.'_TYPE');
+        $this->objectId = Cache::get($integration->id.'_OBJECT_ID');
+        $this->batchSize = 50;
+        $this->integration = $integration;
 
         if(empty($this->authId) || empty($this->domain) || empty($this->type)){
-            throw new Exception('AUTH_ID и/или DOMAIN и/или TYPE не были переданы. Свяжитесь с технической поддержкой.');
+           abort(
+               403,
+               "AUTH_ID и/или DOMAIN и/или TYPE не были переданы.<br>Свяжитесь с технической поддержкой"
+           );
         }
     }
 
@@ -34,32 +47,19 @@ class Bitrix24Service extends Controller
     {
         return $this->objectId;
     }
-
     public function getDomain(): string
     {
         return $this->domain;
     }
-
+    public function getAuthID(): string
+    {
+        return $this->authId;
+    }
     public function getAssigned(): array
     {
         return $this->assigned ?? [1];
     }
 
-    public function sendNotify(array $userIds, string $message): void {
-        foreach ($userIds as $userId) {
-            Http::post("https://{$this->domain}/rest/im.notify.system.add", [
-                'auth' => $this->authId,
-                'USER_ID' => $userId,
-                'MESSAGE' => $message,
-            ]);
-        }
-    }
-
-    public function getOwnerType() {
-        return Http::post("https://{$this->domain}/rest/crm.enum.ownertype", [
-            'auth' => $this->authId,
-        ])->json();
-    }
 
     public function getProductRows(string $ownerType): array
     {
@@ -67,16 +67,24 @@ class Bitrix24Service extends Controller
         $start = 0;
 
         do {
-            $response = Http::post("https://{$this->domain}/rest/crm.item.productrow.list", [
-                'auth' => $this->authId,
-                'filter' => [
-                    "=ownerId" => $this->objectId,
-                    "=ownerType" => $ownerType,
+            $response = $this->executeQuery(
+                $this->domain,
+                $this->authId,
+                'crm.item.productrow.list',
+                'POST',
+                [
+                    'auth' => $this->authId,
+                    'filter' => [
+                        "=ownerId" => $this->objectId,
+                        "=ownerType" => $ownerType,
+                    ],
+                    'start' => $start,
                 ],
-                'start' => $start,
-            ]);
-
-            $response = $response->json();
+                false,
+                null,
+                null,
+                true
+            );
 
             if (isset($response['result']['productRows']) && is_array($response['result']['productRows'])) {
                 $allProductRows = array_merge($allProductRows, $response['result']['productRows']);
@@ -92,47 +100,86 @@ class Bitrix24Service extends Controller
     public function getSmartProcessDetail(): array {
         $ownerTypes = $this->getOwnerType();
 
-        if(empty($ownerTypes['result'])) {
-            $this->sendNotify($this->getAssigned(),'Ошибка при получении ownerTypes. Свяжитесь с технической поддержкой.');
-            throw new Exception($ownerTypes['error_description'] ?? $ownerTypes['error']);
+        if(empty($ownerTypes)) {
+
+            $message = 'Ошибка при получении ownerTypes. Свяжитесь с технической поддержкой.';
+
+            $this->sendNotify(
+                $this->getAssigned(),
+                $message,
+                $this->domain,
+                $this->authId
+            );
+            abort(
+                400,
+                $message
+            );
         }
 
         $type = $this->type;
-        $ownerTypes = $ownerTypes['result'];
-
-        Log::channel('ownerTypes')->debug(json_encode($ownerTypes));
 
         $ownerType = array_filter($ownerTypes, function ($item) use ($type) {
             return $item['SYMBOL_CODE'] === $type;
         });
 
         if(empty($ownerType)){
-            $this->sendNotify($this->getAssigned(),'Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.');
-            throw new Exception('Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.');
+            $this->sendNotify(
+                $this->getAssigned(),
+                'Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.',
+                $this->domain,
+                $this->authId
+            );
+
+            abort(
+                404,
+                'Ошибка при получении SYMBOL_CODE. Свяжитесь с технической поддержкой.'
+            );
         }
 
         $firstItem = reset($ownerType);
 
         if(empty($firstItem)) {
-            $this->sendNotify($this->getAssigned(),'Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.');
-            throw new Exception('Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.');
+            $this->sendNotify(
+                $this->getAssigned(),
+                'Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.',
+                $this->domain,
+                $this->authId
+            );
+
+            abort(
+                404,
+                'Ошибка при определении smartProcessDetail. Свяжитесь с технической поддержкой.'
+            );
         }
 
-        $response = Http::post("https://{$this->domain}/rest/crm.item.get", [
-            'auth' => $this->authId,
-            'entityTypeId' => $firstItem['ID'],
-            'id' => $this->objectId,
-        ]);
+        $response = $this->executeQuery(
+            $this->domain,
+            $this->authId,
+            'crm.item.get',
+            'POST',
+            [
+                'auth' => $this->authId,
+                'entityTypeId' => $firstItem['ID'],
+                'id' => $this->objectId,
+            ]
+        );
 
-        $response = $response->json();
+        if(empty($response['item'])) {
+            $this->sendNotify(
+                $this->getAssigned(),
+                'Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.',
+                $this->domain,
+                $this->authId
+            );
 
-        if(empty($response['result']['item'])) {
-            $this->sendNotify($this->getAssigned(),'Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.');
-            throw new Exception('Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.');
+            abort(
+                404,
+                'Ошибка при получении детальной информации по смарт процессу. Свяжитесь с технической поддержкой.'
+            );
         }
 
         $this->assigned = [
-            $response['result']['item']['assignedById']
+            $response['item']['assignedById']
         ];
         
         return [
@@ -141,227 +188,246 @@ class Bitrix24Service extends Controller
         ];
     }
 
-    public function clearProductRow(string $ownerType): bool {
-
-        do {
-
-            $response = Http::post("https://{$this->domain}/rest/crm.item.productrow.list", [
-                'auth' => $this->authId,
-                'filter' => [
-                    "=ownerId" => $this->objectId,
-                    "=ownerType" => $ownerType,
-                ]
-            ])->json();
-
-            if(!isset($response['result']['productRows']))
-            {
-                $this->sendNotify($this->assigned,'Ошибка при получении списка товарных позиций. Свяжитесь с технической поддержкой.');
-                return false;
-            }
-
-            $productRows = $response['result']['productRows'];
-
-            if(!empty($productRows)) {
-                foreach ($productRows as $productRow) {
-                    $this->deleteProductRow($productRow['id']);
-                }
-            }
-
-        } while (!empty($productRows));
-
-        $this->sendNotify($this->assigned,'Товарные позиции успешно очищены. Начинаю импортировать новые товарные позиции.');
-
-        return true;
-    }
-
-    public function clearProductRowBatch(string $ownerType): bool
+    public function clearProductRow(string $ownerType): void
     {
         do {
 
-            $response = Http::post("https://{$this->domain}/rest/crm.item.productrow.list", [
-                'auth' => $this->authId,
-                'filter' => [
-                    "=ownerId" => $this->objectId,
-                    "=ownerType" => $ownerType,
-                ]
-            ])->json();
-
-            if (!isset($response['result']['productRows'])) {
-                $this->sendNotify($this->assigned, 'Ошибка при получении списка товарных позиций. Свяжитесь с технической поддержкой.');
-                return false;
-            }
-
-            $productRows = $response['result']['productRows'];
-
-            if (!empty($productRows)) {
-                $batchRequests = [];
-                foreach ($productRows as $key => $productRow) {
-                    $batchRequests["delete_{$key}"] = [
-                        'method' => 'crm.item.productrow.delete',
-                        'params' => [
-                            'id' => $productRow['id'],
-                        ]
-                    ];
-                }
-
-                $batchResponse = Http::post("https://{$this->domain}/rest/batch", [
+            $response = $this->executeQuery(
+                $this->domain,
+                $this->authId,
+                'crm.item.productrow.list',
+                'POST',
+                [
                     'auth' => $this->authId,
-                    'cmd' => $batchRequests,
-                ])->json();
+                    'filter' => [
+                        "=ownerId" => $this->objectId,
+                        "=ownerType" => $ownerType,
+                    ]
+                ],
+                true,
+                "Ошибка соединения с порталом. $this->domain",
+                $this->assigned
+            );
 
-                if (!isset($batchResponse['result']) || !empty($batchResponse['result']['error'])) {
-                    $this->sendNotify($this->assigned, 'Ошибка при удалении товарных позиций. Свяжитесь с технической поддержкой.');
-                    return false;
-                }
+            if(!isset($response['productRows'])) {
+                $this->sendNotify(
+                    $this->assigned,
+                    'Ошибка при получении списка товарных позиций. Свяжитесь с технической поддержкой.',
+                    $this->domain,
+                    $this->authId
+                );
+                break;
             }
 
-        } while (!empty($productRows));
+            if(!empty($response['productRows'])) {
+                $this->batchDeleteProductRows($response['productRows'], $this->authId);
+            }
 
-        $this->sendNotify($this->assigned, 'Товарные позиции успешно очищены. Начинаю импортировать новые товарные позиции.');
-
-        return true;
-    }
-
-    public function deleteProductRow(int $productRow): void
-    {
-
-        $response = Http::post("https://{$this->domain}/rest/crm.item.productrow.delete", [
-            'auth' => $this->authId,
-            'id' => $productRow,
-        ]);
-
-        //Log::channel('deleteProductRow')->debug('REQUEST: '.$productRow);
-        //Log::channel('deleteProductRow')->debug('STATUS: '.$response->status());
-        $response = $response->json();
-        //Log::channel('deleteProductRow')->debug('RESPONSE: '.json_encode($response).PHP_EOL);
-
-        if(!array_key_exists('result', $response)) {
-            $this->sendNotify($this->assigned,'Ошибка при удалении товарной позиции. Попробуйте снова или свяжитесь с технической поддержкой.');
-        }
+        } while (!empty($response['productRows']));
     }
 
     public function productDetail(int $productId) {
-        $response = Http::post("https://{$this->domain}/rest/crm.product.get", [
-            'auth' => $this->authId,
-            'id' => $productId,
-        ])->json();
-
-        if(empty($response['result'])) {
-            Log::channel('importProduct')->debug('Ошибка при получении информации о продукте: '.json_encode($response));
-            return null;
-        }
-
-        return $response['result'] ?? null;
-    }
-
-    public function productFields() {
-        $response = Http::post("https://{$this->domain}/rest/crm.product.fields", [
-            'auth' => $this->authId,
-        ])->json();
-
-        if(empty($response['result'])) {
-            Log::channel('importProduct')->debug('Ошибка при получении списка продуктов : '.json_encode($response));
-            return null;
-        }
-
-        return $response['result'] ?? null;
-    }
-
-    public function addProduct(array $data): ?int {
-        $integration = Integration::where('domain', $this->domain)->first();
-
-        $response = Http::post("https://{$this->domain}/rest/crm.product.add", [
-            'auth' => $this->authId,
-            'fields' => [
-                "NAME" => $data['name'],
-                "CURRENCY_ID" => "RUB",
-                "PRICE" => $data['price'],
-                "PROPERTY_".$integration->product_field_article => $data['article'],
-                "PROPERTY_".$integration->product_field_brand => $data['brand'],
+        $response = $this->executeQuery(
+            $this->domain,
+            $this->authId,
+            'crm.product.get',
+            'POST',
+            [
+                'auth' => $this->authId,
+                'id' => $productId,
             ]
-        ])->json();
-
-        if(empty($response['result'])) {
-            Log::channel('importProduct')->debug('Ошибка при добавлении продукта : '.json_encode($response));
-            $this->sendNotify($this->assigned,'Ошибка при добавлении продукта. Свяжитесь с технической поддержкой.');
-            return null;
-        }
-
-        return $response['result'] ?? null;
+        );
+        return $response ?? [];
     }
 
-    public function searchProduct(array $data): ?int {
+    public function getOrCreateProducts(array $data): array
+    {
 
-        $integration = Integration::where('domain', $this->domain)->first();
+        $productData = $batchRequests = $needToCreateProducts = [];
 
-        $searchArray = [
-            "NAME" => $data['name']
+        foreach ($data as $key => $row) {
+            $filterArray = [
+                "filter[NAME]" => $row['name']
+            ];
+
+            if (!empty($row['article'])) {
+                $filterArray["filter[PROPERTY_".$this->integration->product_field_article."]"] = $row['article'];
+            }
+
+            if (!empty($row['brand'])) {
+                $filterArray["filter[PROPERTY_".$this->integration->product_field_brand."]"] = $row['brand'];
+            }
+
+            $filterArray["select"] = ["ID", "NAME", "PROPERTY_*"];
+
+            $queryString = http_build_query($filterArray);
+
+            $batchRequests["product_$key"] = "crm.product.list?auth={$this->integration->access_key}&$queryString";
+            $productData["product_$key"] = $row;
+        }
+
+        $searchProductResult = $this->executeBatch($batchRequests, 'searchProducts');
+
+        foreach ($searchProductResult as $key => $product) {
+            if(empty($product)) {
+                $needToCreateProducts[$key] = $productData[$key];
+            }
+        }
+
+        $this->batchAddProduct($needToCreateProducts);
+
+        return $this->executeBatch($batchRequests, 'getProducts');
+    }
+
+    public function addProductRows(array $products, array $bitrixProducts): void
+    {
+
+        $properties = [
+            'article' => $this->integration->product_field_article,
+            'brand' => $this->integration->product_field_brand
         ];
 
-        if (!empty($data['article'])) {
-            $searchArray["PROPERTY_".$integration->product_field_article] = $data['article'];
+        $matchProducts = $this->matchProducts($products, $bitrixProducts, $properties);
+
+        if(is_array($matchProducts)) {
+            foreach ($matchProducts as $key => $product) {
+                $addArray = [
+                    "fields[ownerId]" => $product['ownerId'],
+                    "fields[ownerType]" => $product['ownerType'],
+                    "fields[productId]" => $product['productId'],
+                    "fields[price]" => $product['price'],
+                    "fields[quantity]" => $product['quantity'],
+                ];
+                $queryString = http_build_query($addArray);
+                $batchRequests["productrow_add_$key"] = "crm.item.productrow.add?auth={$this->integration->access_key}&$queryString";
+            }
+            if(!empty($batchRequests)) {
+                $this->executeBatch($batchRequests, 'addProductRows');
+            }
         }
 
-        if (!empty($data['brand'])) {
-            $searchArray["PROPERTY_".$integration->product_field_brand] = $data['brand'];
-        }
-
-        $response = Http::post("https://{$this->domain}/rest/crm.product.list", [
-            'auth' => $this->authId,
-            'filter' => $searchArray
-        ])->json();
-
-        Log::channel('searchProduct')->debug('DOMAIN : '.$this->domain);
-        Log::channel('searchProduct')->debug('REQUEST : '.json_encode($searchArray));
-        Log::channel('searchProduct')->debug('RESPONSE : '.json_encode($response));
-
-        if(!isset($response['result'])) {
-            Log::channel('searchProduct')->debug('Ошибка при поиске продукта : '.json_encode($response));
-            $this->sendNotify($this->assigned,'Ошибка при поиске продукта. Свяжитесь с технической поддержкой.');
-            return null;
-        }
-
-        if(count($response['result']) > 1) {
-            Log::channel('searchProduct')->debug('Продукт с именем "' . $data['name'] . '" уже существует, в кол-ве больше одной единицы. Дальнейший импорт невозможен.');
-            $this->sendNotify($this->assigned,'Продукт с именем "' . $data['name'] . '" уже существует, в кол-ве больше одной единицы. Дальнейший импорт невозможен.');
-            return null;
-        }
-
-        if(empty($response['result'])) {
-            $product = $this->addProduct($data);
-        }
-
-        if(empty($product) && empty($response['result'][0]['ID'])) {
-            Log::channel('searchProduct')->debug('Ошибка при поиске и/или создании продукта. Свяжитесь с технической поддержкой.');
-            $this->sendNotify($this->assigned,'Ошибка при поиске и/или создании продукта. Свяжитесь с технической поддержкой.');
-            return null;
-        }
-
-        $product = !empty($product) ? $product : (int) $response['result'][0]['ID'];
-
-        return $product;
     }
 
-    public function deleteProduct(int $productId): ?object {
-        return Http::post("https://{$this->domain}/rest/crm.product.delete", [
-            'auth' => $this->authId,
-            'id' => $productId,
-        ])->object();
+    private function executeBatch(array $batch, string $type): array
+    {
+        $chunks = array_chunk($batch, $this->batchSize, true);
+
+        $errorReason = match ($type) {
+            'getProducts' => 'При получении товаров',
+            'searchProducts' => 'При поиске товаров',
+            'addProducts' => 'При создании товара',
+            'deleteProductRows' => 'При удалении товарных позиций',
+            'addProductRows' => 'При добавлении товарных позиций',
+            default => null
+        };
+
+        $allResults = [];
+
+        foreach ($chunks as $chunk) {
+
+            $response = $this->executeQuery(
+                $this->domain,
+                $this->authId,
+                'batch',
+                'POST',
+                [
+                    'auth' => $this->authId,
+                    'halt' => 0,
+                    'cmd' => $chunk,
+                ],
+                true,
+                "Ошибка соединения с порталом - $errorReason - $this->domain",
+                $this->assigned
+            );
+
+            if (isset($response) && is_array($response)) {
+                $allResults = array_merge_recursive($allResults, $response);
+            }
+
+        }
+
+        return flattenArray($allResults);
     }
 
-    public function addProductRow(array $data): ?array {
-        $response = Http::post("https://{$this->domain}/rest/crm.item.productrow.add", [
-            'auth' => $this->authId,
-            'fields' => [
-                "ownerId" => $data['ownerId'],
-                "ownerType" => $data['ownerType'],
-                "productId" => $data['productId'],
-                "price" => $data['price'],
-                "quantity" => $data['quantity'],
+    private function batchAddProduct(array $data): void
+    {
+        foreach ($data as $key => $row) {
+
+            $addArray = [
+                "fields[NAME]" => $row['name'],
+                "fields[CURRENCY_ID]" => "RUB",
+                "fields[PRICE]" => $row['price'],
+            ];
+
+            if(!empty($row['article'])) {
+                $addArray['fields[PROPERTY_'.$this->integration->product_field_article.']'] = $row['article'];
+            }
+
+            if(!empty($row['brand'])) {
+                $addArray['fields[PROPERTY_'.$this->integration->product_field_brand.']'] = $row['brand'];
+            }
+
+            $queryString = http_build_query($addArray);
+
+            $batchRequests["product_add_$key"] = "crm.product.add?auth={$this->integration->access_key}&$queryString";
+
+        }
+
+        if(!empty($batchRequests)) {
+            $this->executeBatch($batchRequests, 'addProducts');
+        }
+    }
+
+    private function batchDeleteProductRows(array $productRows, string $accessKey): void
+    {
+        foreach ($productRows as $key => $row) {
+            $batchRequests["productrow_delete_$key"] = "crm.item.productrow.delete?auth=$accessKey&id=".$row['id'];
+        }
+
+        if(!empty($batchRequests)) {
+            $this->executeBatch($batchRequests, 'deleteProductRows');
+        }
+    }
+
+    private function matchProducts($firstArray, $secondArray, array $properties): false|array {
+        foreach ($firstArray as &$firstProduct) {
+
+            $matchedProducts = array_filter($secondArray, function ($secondProduct) use ($firstProduct, $properties) {
+                $matchByName = $firstProduct['name'] === $secondProduct['NAME'];
+                $matchByArticle = empty($firstProduct['article']) || $firstProduct['article'] === ($secondProduct['PROPERTY_'.$properties['article']]['value'] ?? null);
+                $matchByBrand = empty($firstProduct['brand']) || $firstProduct['brand'] === ($secondProduct['PROPERTY_'.$properties['brand']]['value'] ?? null);
+                return $matchByName && $matchByArticle && $matchByBrand;
+            });
+
+            if (count($matchedProducts) > 1) {
+                $this->sendNotify(
+                    $this->assigned,
+                    "Найдено несколько совпадений для товара: {$firstProduct['name']}",
+                    $this->domain,
+                    $this->authId
+                );
+                return false;
+            }
+
+            if (count($matchedProducts) === 1) {
+                $matchedProduct = reset($matchedProducts);
+                $firstProduct['productId'] = $matchedProduct['ID'];
+            }
+        }
+
+        return $firstArray;
+    }
+
+    private function getOwnerType() {
+        return $this->executeQuery(
+            $this->domain,
+            $this->authId,
+            'crm.enum.ownertype',
+            'POST',
+            [
+                'auth' => $this->authId
             ]
-        ])->json();
-        //Log::channel('importProductRow')->debug('NEW PRODUCT ROW: '.json_encode($response));
-        return $response['result'];
+        );
     }
 
 }

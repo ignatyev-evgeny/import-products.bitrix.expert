@@ -16,7 +16,7 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
 {
     private Bitrix24Service $bitrixService;
 
-    public $timeout = 3600;
+    public int $timeout = 3600;
 
     public function __construct(Bitrix24Service $bitrixService)
     {
@@ -51,32 +51,38 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
             }
         }
 
-        $uniqueProducts = [];
+        if(!empty($products)) {
 
-        foreach ($products as $product) {
-            $uniqueKey = ($product['article'] ?? 'no_article') . '|' . ($product['brand'] ?? 'no_brand') . '|' . $product['name'];
-            if (isset($uniqueProducts[$uniqueKey])) {
-                $uniqueProducts[$uniqueKey]['quantity'] += $product['quantity'];
-            } else {
-                $uniqueProducts[$uniqueKey] = $product;
+            $uniqueProducts = [];
+
+            foreach ($products as $product) {
+                $uniqueKey = ($product['article'] ?? 'no_article') . '|' . ($product['brand'] ?? 'no_brand') . '|' . $product['name'];
+                if (isset($uniqueProducts[$uniqueKey])) {
+                    $uniqueProducts[$uniqueKey]['quantity'] += $product['quantity'];
+                } else {
+                    $uniqueProducts[$uniqueKey] = $product;
+                }
             }
-        }
 
-        $uniqueProducts = array_values($uniqueProducts);
+            $uniqueProducts = array_values($uniqueProducts);
 
-        if(empty($uniqueProducts)) {
-            $this->bitrixService->sendNotify(
-                $this->bitrixService->getAssigned(),
-                'Был отправлен пустой файл либо при обработке файла произошла ошибка, дальнейшая обработка файла невозможна. Свяжитесь с технической поддержкой.'
+            if(empty($uniqueProducts)) {
+                $this->bitrixService->sendNotify(
+                    $this->bitrixService->getAssigned(),
+                    'Был отправлен пустой файл либо при обработке файла произошла ошибка, дальнейшая обработка файла невозможна. Свяжитесь с технической поддержкой.',
+                    $this->bitrixService->getDomain(),
+                    $this->bitrixService->getAuthID()
+                );
+                return false;
+            }
+
+            $bitrixProducts = $this->bitrixService->getOrCreateProducts($uniqueProducts);
+            $this->bitrixService->addProductRows(
+                $uniqueProducts,
+                $bitrixProducts
             );
-            return false;
-        }
 
-        $bitrixProducts = $this->bitrixService->getOrCreateProducts($uniqueProducts);
-        $this->bitrixService->addProductRows(
-            $uniqueProducts,
-            $bitrixProducts
-        );
+        }
 
     }
 
@@ -97,7 +103,9 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
             AfterImport::class => function(AfterImport $event) {
                 $this->bitrixService->sendNotify(
                     $this->bitrixService->getAssigned(),
-                    'Импорт завершен!'
+                    'Импорт завершен!',
+                    $this->bitrixService->getDomain(),
+                    $this->bitrixService->getAuthID()
                 );
             },
         ];

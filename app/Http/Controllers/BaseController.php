@@ -2,10 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Services\Bitrix24Service;
 use App\Models\Integration;
 use App\Models\IntegrationField;
-use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -14,7 +12,11 @@ use Illuminate\Support\Facades\Log;
 class BaseController extends Controller {
 
     public const PROPERTY_NAME_AVAILABLE = ['Артикул', 'Бренд'];
+    public const EVENT_HANDLER_URL = 'https://import-products.bitrix.expert/event/handler';
+    public const PLACEMENT_HANDLER_URL = 'https://import-products.bitrix.expert';
+    public const PLACEMENT_HANDLER_NAME = 'Импорт товаров';
 
+    /** Обработчик главной страницы, на которую пользователь попадает каждый раз когда открывает приложение */
     public function index(Request $request)
     {
 
@@ -38,37 +40,43 @@ class BaseController extends Controller {
         $integration = Integration::where('domain', $request->DOMAIN)->first();
 
         if(empty($integration)) {
-            abort(404, "Интеграция не найдена. Переустановите приложение.");
+            abort(404, "Интеграция не найдена. <br> Переустановите приложение.");
         }
 
-        Cache::set('AUTH_ID', $integration->access_key, $request->AUTH_EXPIRES);
-        Cache::set('DOMAIN', $request->DOMAIN, $request->AUTH_EXPIRES);
-        Cache::set('TYPE', $type, $request->AUTH_EXPIRES);
-        Cache::set('OBJECT_ID', $objectId, $request->AUTH_EXPIRES);
+        Cache::set($integration->id.'_AUTH_ID', $integration->access_key, $request->AUTH_EXPIRES);
+        Cache::set($integration->id.'_DOMAIN', $request->DOMAIN, $request->AUTH_EXPIRES);
+        Cache::set($integration->id.'_TYPE', $type, $request->AUTH_EXPIRES);
+        Cache::set($integration->id.'_OBJECT_ID', $objectId, $request->AUTH_EXPIRES);
 
         $availablePlacements = $this->listProcess($integration->access_key, $request->DOMAIN);
 
-        if($request->DOMAIN != 'eugenekulakov.bitrix24.ru111') {
+        if(config('app.maintenance_mode') != "ON") {
+            return view('errors.maintenanceMode');
+        }
+
+        if($request->DOMAIN != 'b24-906dpp.bitrix24.ru') {
             return view('index', [
                 'availablePlacements' => $availablePlacements,
+                'domain' => $request->DOMAIN,
             ]);
         }
 
         return view('newIndex', [
             'availablePlacements' => $availablePlacements,
+            'domain' => $request->DOMAIN,
         ]);
 
     }
 
+    /** Обработчик входящих событий от Битрикс24 */
     public function eventHandler(Request $request) {
         Log::channel('eventHandler')->debug(json_encode($request->all()));
-
         if(!empty($request['event']) && !empty($request['auth']['domain']) && $request['event'] == "ONAPPUNINSTALL") {
             Integration::where('domain', $request['auth']['domain'])->delete();
         }
-
     }
 
+    /** Обработчик установки приложения */
     public function install(Request $request) {
 
         Log::channel('installApplication')->debug(json_encode($request->all()));
@@ -89,23 +97,21 @@ class BaseController extends Controller {
         }
 
         $availablePlacements = $this->getAvailablePlacements($auth, $domain);
-
         $availablePlacements[] = 'CRM_DEAL_DETAIL_TAB';
-
-        Log::channel('placementList')->debug(json_encode($availablePlacements));
-
 
         foreach ($availablePlacements as $placement) {
             $placementBindResponse = $this->bindPlacement($placement, $auth, $domain);
-            if (!empty($placementBindResponse->error) && $placementBindResponse->error_description == 'Unable to set placement handler: Handler already binded') {
+            if (!empty($placementBindResponse['error']) && $placementBindResponse['error_description'] == 'Unable to set placement handler: Handler already binded') {
                 $this->unbindPlacement($placement, $auth, $domain);
                 $this->bindPlacement($placement, $auth, $domain);
             }
         }
 
+        /** Установка событий для отправки со стороны Битрикс24 и обработки на стороне приложения */
         $this->setEventHandler($auth, "onCrmTypeAdd", $domain);
         $this->setEventHandler($auth, "OnAppUninstall", $domain);
 
+        /** Создание или обновление записи об интеграции на стороне приложения */
         Integration::updateOrCreate([
             'domain' => $domain
         ], [
@@ -118,33 +124,33 @@ class BaseController extends Controller {
         return view('install');
     }
 
+    /** Функция для установки приложения в смарт процессы */
     private function bindPlacement(string $placement, string $auth, string $domain)
     {
-        return Http::get("https://{$domain}/rest/placement.bind", [
+        return $this->executeQuery($domain,"placement.bind", "GET", [
             'auth' => $auth,
             'PLACEMENT' => $placement,
-            'HANDLER' => 'https://import-products.bitrix.expert',
+            'HANDLER' => self::PLACEMENT_HANDLER_URL,
             'LANG_ALL' => [
                 'ru' => [
-                    'TITLE' => 'Импорт товаров',
+                    'TITLE' => self::PLACEMENT_HANDLER_NAME,
                 ],
             ],
-        ])->object();
+        ]);
     }
 
     private function getOrCreateProductProperty(string $name, string $auth, string $domain, string $type)
     {
-
         $integrationFields = IntegrationField::where('domain', $domain)->first();
 
         if(!empty($integrationFields->article) && !empty($integrationFields->brand)) {
             return match ($type) {
-                'article' => $this->checkIssetProductProperty($integrationFields->article, $auth, $domain, $name, $type),
-                'brand' => $this->checkIssetProductProperty($integrationFields->brand, $auth, $domain, $name, $type)
+                'article' => $this->checkOrCreateProductProperty($integrationFields->article, $auth, $domain, $name, $type),
+                'brand' => $this->checkOrCreateProductProperty($integrationFields->brand, $auth, $domain, $name, $type)
             };
         }
 
-        $response = Http::get("https://{$domain}/rest/crm.product.property.add", [
+        $result = $this->executeQuery($domain,"crm.product.property.add", "GET", [
             'auth' => $auth,
             'FIELDS' => [
                 'ACTIVE' => 'Y',
@@ -152,12 +158,6 @@ class BaseController extends Controller {
                 'PROPERTY_TYPE' => 'S',
             ]
         ]);
-
-        if ($response->failed()) {
-            throw new Exception("Ошибка соединения с порталом {$domain}");
-        }
-
-        $result = $response->json()['result'];
 
         IntegrationField::updateOrCreate([
             'domain' => $domain
@@ -168,27 +168,19 @@ class BaseController extends Controller {
         return $result;
     }
 
-    private function checkIssetProductProperty(int $property, string $auth, string $domain, string $name, string $type)
+    private function checkOrCreateProductProperty(int $property, string $auth, string $domain, string $name, string $type)
     {
 
-        $response = Http::get("https://{$domain}/rest/crm.product.property.get", [
+        $propertyData = $this->executeQuery($domain,"crm.product.property.get", "GET", [
             'auth' => $auth,
             'id' => $property,
         ]);
-
-
-        if ($response->failed()) {
-            throw new Exception("Ошибка соединения с порталом {$domain}");
-        }
-
-        $propertyData = $response->json()['result'];
-
 
         if(!empty($propertyData) && in_array($propertyData['NAME'], self::PROPERTY_NAME_AVAILABLE) && $propertyData['ACTIVE'] = 'Y' && $propertyData['PROPERTY_TYPE'] == 'S') {
             return $propertyData['ID'];
         }
 
-        $response = Http::get("https://{$domain}/rest/crm.product.property.add", [
+        $result = $this->executeQuery($domain,"crm.product.property.add", "GET", [
             'auth' => $auth,
             'FIELDS' => [
                 'ACTIVE' => 'Y',
@@ -196,12 +188,6 @@ class BaseController extends Controller {
                 'PROPERTY_TYPE' => 'S',
             ]
         ]);
-
-        if ($response->failed()) {
-            throw new Exception("Ошибка соединения с порталом {$domain}");
-        }
-
-        $result = $response->json()['result'];
 
         IntegrationField::updateOrCreate([
             'domain' => $domain
@@ -213,51 +199,33 @@ class BaseController extends Controller {
 
     }
 
-    private function unbindPlacement(string $placement, string $auth, string $domain)
+    private function unbindPlacement(string $placement, string $auth, string $domain): void
     {
-
-        $requestData = [
-            'name' => $placement,
+        $this->executeQuery($domain, "placement.unbind", "GET", [
             'auth' => $auth,
-            'domain' => $domain
-        ];
-
-        Log::channel('unbindPlacement')->debug("REQUEST: ".json_encode($requestData));
-
-        $result = Http::get("https://{$domain}/rest/placement.unbind", [
-            'auth' => $auth,
-            'PLACEMENT' => $placement,
+            'PLACEMENT' => $placement
         ]);
-
-        $result = $result->object();
-
-        Log::channel('unbindPlacement')->debug("RESPONSE: ".json_encode($result));
-        return $result;
     }
 
     private function listPlacement(string $auth, string $domain)
     {
-        return Http::get("https://{$domain}/rest/placement.list", [
+        return $this->executeQuery($domain,"placement.list", "GET", [
             'auth' => $auth,
-        ])->object();
+        ]);
     }
 
     private function listProcess(string $auth, string $domain)
     {
-        $response = Http::get("https://{$domain}/rest/crm.type.list", [
+        $response = $this->executeQuery($domain,"crm.type.list", "GET", [
             'auth' => $auth,
         ]);
-
-        if ($response->failed()) {
-            throw new Exception("Ошибка соединения с порталом {$domain}");
-        }
 
         $availablePlacements = [];
 
         foreach ($this->getAvailablePlacements($auth, $domain) as $key => $value) {
             preg_match('/(\d+)/', $value, $matches);
             $entityTypeId = $matches[1];
-            foreach ($response->json()['result']['types'] as $item) {
+            foreach ($response['types'] as $item) {
                 if ($item['entityTypeId'] == $entityTypeId) {
                     $availablePlacements[$value] = [
                         'id' => $item['id'],
@@ -270,29 +238,37 @@ class BaseController extends Controller {
         }
 
         return $availablePlacements;
-
     }
 
-
-
-    private function getAvailablePlacements(string $auth, string $domain) {
-        $placementList = $this->listPlacement($auth, $domain);
-
+    private function getAvailablePlacements(string $auth, string $domain)
+    {
         $pattern = '/^CRM_DYNAMIC_\d+_DETAIL_TAB$/';
-        $availablePlacements = array_filter($placementList->result, function($item) use ($pattern) {
+        return array_filter($this->listPlacement($auth, $domain), function($item) use ($pattern) {
             return preg_match($pattern, $item);
         });
-
-        return $availablePlacements;
     }
 
-    private function setEventHandler(string $auth, string $event, string $domain)
+    private function setEventHandler(string $auth, string $event, string $domain): void
     {
-        return Http::get("https://{$domain}/rest/event.bind.json", [
+        $this->executeQuery($domain, "event.bind.json", "GET", [
             'auth' => $auth,
             'event' => $event,
-            'handler' => 'https://import-products.bitrix.expert/event/handler',
-        ])->object();
+            'handler' => self::EVENT_HANDLER_URL,
+        ]);
+    }
+
+    private function executeQuery(string $domain, string $endpoint, string $method, array $data)
+    {
+        $request = match ($method) {
+            'GET' => Http::timeout(120)->get("https://{$domain}/rest/{$endpoint}", $data),
+            'POST' => Http::timeout(120)->post("https://{$domain}/rest/{$endpoint}", $data),
+        };
+
+        if ($request->failed()) {
+            abort(503, "Ошибка соединения с порталом {$domain}");
+        }
+
+        return $request->json()['result'];
     }
 
 }

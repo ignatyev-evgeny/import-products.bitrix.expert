@@ -6,6 +6,7 @@ use App\Exports\ExportProductRows;
 use App\Http\Services\Bitrix24Service;
 use App\Jobs\ProcessImportJob;
 use App\Models\Integration;
+use Cache;
 use Exception;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
@@ -26,25 +27,44 @@ class SyncController extends Controller {
     public function importProcess(Request $request)
     {
         $request->validate([
-            'file' => 'required|mimes:xlsx,xls'
+            'file' => 'required|mimes:xlsx,xls',
+            'objectID' => 'required|integer'
         ]);
 
         try {
             $this->bitrixService->getSmartProcessDetail();
             $filePath = storage_path('app/' . $request->file('file')->store('temp'));
-            ProcessImportJob::dispatch(
-                $filePath,
-                $this->bitrixService
-            );
-            $this->bitrixService->sendNotify(
-                $this->bitrixService->getAssigned(),
-                'Файл добавлен в очередь на обработку.',
-                $this->bitrixService->getDomain(),
-                $this->bitrixService->getAuthID()
-            );
-            return response()->json([
-                'message' => 'Файл добавлен в очередь на обработку.'
-            ]);
+
+            if (Cache::has($request->objectID.'_import_in_progress')) {
+                return response()->json([
+                    'message' => 'Импорт уже выполняется. Пожалуйста, дождитесь завершения.'
+                ], 429);
+            }
+
+            Cache::put($request->objectID.'_import_in_progress', true, 3600);
+
+            try {
+                ProcessImportJob::dispatch(
+                    $filePath,
+                    $this->bitrixService,
+                    $request->objectID
+                );
+                $this->bitrixService->sendNotify(
+                    $this->bitrixService->getAssigned(),
+                    'Файл добавлен в очередь на обработку.',
+                    $this->bitrixService->getDomain(),
+                    $this->bitrixService->getAuthID()
+                );
+                return response()->json([
+                    'message' => 'Файл добавлен в очередь на обработку.'
+                ]);
+            } catch (Exception $e) {
+                Cache::forget($request->objectID.'_import_in_progress');
+                return response()->json([
+                    'message' => 'Ошибка запуска импорта: ' . $e->getMessage()
+                ], 500);
+            }
+
         } catch (Exception $exception) {
             return response()->json([
                 'message' => $exception->getMessage()

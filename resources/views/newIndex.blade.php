@@ -47,6 +47,7 @@
                             <label for="formFile" class="form-label">Выберите файл Excel</label>
                             <input class="form-control" type="file" name="file" id="formFile" required>
                         </div>
+                        <input type="hidden" name="objectID" value="{{ $objectID }}">
                         <button type="submit" class="btn btn-success w-100">Импортировать</button>
                     </form>
                 </div>

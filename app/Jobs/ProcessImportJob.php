@@ -3,13 +3,13 @@
 namespace App\Jobs;
 
 use App\Http\Services\Bitrix24Service;
+use App\Imports\BatchImportToBitrix24;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Imports\ImportToBitrix24;
 
 class ProcessImportJob implements ShouldQueue
 {
@@ -28,6 +28,6 @@ class ProcessImportJob implements ShouldQueue
 
     public function handle()
     {
-        Excel::import(new ImportToBitrix24($this->bitrixService), $this->filePath);
+        Excel::import(new BatchImportToBitrix24($this->bitrixService), $this->filePath);
     }
 }

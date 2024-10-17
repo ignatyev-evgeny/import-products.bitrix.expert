@@ -17,6 +17,8 @@ return [
 
     'portal' => env('BITRIX_PORTAL'),
 
+    'maintenance_mode' => env('MAINTENANCE_MODE', 'ON'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment

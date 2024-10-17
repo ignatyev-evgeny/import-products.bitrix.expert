@@ -29,7 +29,7 @@
     </style>
 </head>
 <body>
-<main class="ps-5 pt-3 pe-5 pb-3">
+<main class="ps-3 pt-3 pe-3 pb-3">
     <div class="row">
         <div id="alert-container"></div>
     </div>
@@ -59,22 +59,72 @@
                         <div class="alert alert-info" role="alert">
                             Обратите внимание, при экспорте файла, все товарные позиции (включая данные по самому товару) будут экспортированы в <b>XLSX</b> файл.<br>Данный файл после внесения изменений, может быть импортирован обратно.
                         </div>
-                        <a href="{{ route('export.process') }}" class="btn btn-warning w-100">Экспорт</a>
+                        <a type="button" class="btn btn-warning w-100 exportProcess">Экспорт</a>
                     </form>
                 </div>
             </div>
         </div>
         <div class="col-md-6">
-            <div class="card ">
-                <div class="card-header">Использование в смарт процессах</div>
-                <div class="card-body">
-                    <div style="max-height: 475px; overflow-y: auto;">
-                        @foreach($availablePlacements as $key => $placement)
-                            <div class="form-check form-switch d-flex justify-content-between">
-                                <label class="form-check-label" for="{{ $key }}">{{ $placement['title'] }}</label>
-                                <input class="form-check-input" type="checkbox" id="{{ $key }}" checked disabled>
+
+            <ul class="nav nav-pills mb-3 row" id="pills-tab" role="tablist">
+                <li class="nav-item col-6" role="presentation">
+                    <button class="nav-link active w-100" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#pills-home" type="button" role="tab" aria-controls="pills-home" aria-selected="true">Техническая поддержка</button>
+                </li>
+                <li class="nav-item col-6" role="presentation">
+                    <button class="nav-link w-100" id="view-settings-tab" data-bs-toggle="pill" data-bs-target="#view-settings" type="button" role="tab" aria-controls="view-settings" aria-selected="false">Настройка отображения</button>
+                </li>
+            </ul>
+            <div class="tab-content" id="pills-tabContent">
+                <div class="tab-pane fade show active" id="pills-home" role="tabpanel" aria-labelledby="pills-home-tab" tabindex="0">
+                    <div class="card">
+                        <div class="card-body">
+                            <form>
+                                <div class="mb-3">
+                                    <label for="domain" class="form-label">Домен портала</label>
+                                    <input readonly type="text" name="domain" class="form-control" id="domain" value="{{ $domain }}">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="exampleInputEmail1" class="form-label">Ваш Email</label>
+                                    <input type="email" class="form-control" id="exampleInputEmail1">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="reason" class="form-label">Тема обращения</label>
+                                    <select class="form-select" id="reason">
+                                        <option value="Обратная связь" selected>Обратная связь</option>
+                                        <option value="Требуется доработка">Требуется доработка</option>
+                                        <option value="Идеи и предложения">Идеи и предложения</option>
+                                        <option value="Возникла ошибка">Возникла ошибка</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="message" class="form-label">Текст обращения</label>
+                                    <textarea class="form-control" id="message" rows="3"></textarea>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">Отправить</button>
+                            </form>
+                        </div>
+                        <div class="card-footer text-body-secondary text-center">
+                            или свяжитесь с нами через <a target="_blank" href="https://t.me/meeteam_support">Telegram</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="view-settings" role="tabpanel" aria-labelledby="view-settings-tab" tabindex="0">
+                    <div class="card">
+                        <div class="card-header">Использование в смарт процессах</div>
+                        <div class="card-body">
+                            <div style="max-height: 475px; overflow-y: auto;">
+                                @if(empty($availablePlacements))
+                                    <h6 class="text-center" style="color:red">На портале отсутствуют смарт процессы</h6>
+                                @else
+                                    @foreach($availablePlacements as $key => $placement)
+                                        <div class="form-check form-switch d-flex justify-content-between">
+                                            <label class="form-check-label" for="{{ $key }}">{{ $placement['title'] }}</label>
+                                            <input class="form-check-input" type="checkbox" id="{{ $key }}" checked disabled>
+                                        </div>
+                                    @endforeach
+                                @endif
                             </div>
-                        @endforeach
+                        </div>
                     </div>
                 </div>
             </div>
@@ -127,6 +177,43 @@
                     }
                 });
             });
+
+            $('.exportProcess').on('click', function (e) {
+                e.preventDefault();
+                $.ajax({
+                    url: '{{ route('export.process') }}',
+                    type: 'GET',
+                    processData: false,
+                    contentType: false,
+                    beforeSend: function () {
+                        $('#alert-container').html('');
+                        $('#loading-spinner').removeClass('d-none');
+                        $('#overlay').removeClass('d-none');
+                    },
+                    success: function (response) {
+                        if (response.download_url) {
+                            var link = document.createElement('a');
+                            link.href = response.download_url;
+                            link.setAttribute('download', '');
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            $('#loading-spinner').addClass('d-none');
+                            $('#overlay').addClass('d-none');
+                        } else {
+                            $('#alert-container').html(
+                                '<div class="alert alert-danger text-center">Ошибка: ссылка на файл не найдена.</div>'
+                            );
+                        }
+                    },
+                    error: function (xhr) {
+                        $('#loading-spinner').addClass('d-none');
+                        $('#overlay').addClass('d-none');
+                        $('#alert-container').html('<div class="alert alert-danger text-center">' + xhr.responseJSON.message + '</div>');
+                    }
+                });
+            });
+
         });
 
     });

@@ -59,7 +59,7 @@
                         <div class="alert alert-info" role="alert">
                             Обратите внимание, при экспорте файла, все товарные позиции (включая данные по самому товару) будут экспортированы в <b>XLSX</b> файл.<br>Данный файл после внесения изменений, может быть импортирован обратно.
                         </div>
-                        <a href="{{ route('export.process') }}" class="btn btn-warning w-100">Экспорт</a>
+                        <a href="{!! route('export.process') !!}" class="btn btn-warning w-100">Экспорт</a>
                     </form>
                 </div>
             </div>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 abstract class Controller
 {
@@ -15,7 +16,9 @@ abstract class Controller
         bool $notify = false,
         string $message = null,
         $assigned = null,
-        $pagination = false
+        $pagination = false,
+        $type = null,
+        $recursive = false,
     ) {
         $request = match ($method) {
             'GET' => Http::timeout(120)->get("https://$domain/rest/$endpoint", $data),
@@ -23,6 +26,18 @@ abstract class Controller
         };
 
         if ($request->failed()) {
+
+            $logData = [
+                'request' => [
+                    'domain' => $domain,
+                    'authID' => $authID,
+                    'endpoint' => $endpoint,
+                    'method' => $method,
+                    'data' => $data,
+                ],
+                'response' => $request->json(),
+            ];
+            Log::channel('critical')->critical(json_encode($logData));
 
             $message = empty($message) ? "Ошибка соединения с порталом $domain" : $message;
 
@@ -35,13 +50,22 @@ abstract class Controller
                 );
             }
 
-            abort(
-                503,
-                $message
-            );
+            return [];
         }
 
-        return !$pagination ? $request->json()['result'] : $request->json();
+        if($pagination) {
+            return $request->json();
+        }
+
+        if($recursive) {
+            return $request->json()['result']['result'];
+        }
+
+        if(empty($request->json()['result'])) {
+            dd($request->json());
+        }
+
+        return $request->json()['result'];
     }
 
     public function sendNotify(

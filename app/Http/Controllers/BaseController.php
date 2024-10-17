@@ -57,12 +57,14 @@ class BaseController extends Controller {
             return view('index', [
                 'availablePlacements' => $availablePlacements,
                 'domain' => $request->DOMAIN,
+                'objectID' => $objectId,
             ]);
         }
 
         return view('newIndex', [
             'availablePlacements' => $availablePlacements,
             'domain' => $request->DOMAIN,
+            'objectID' => $objectId,
         ]);
 
     }
@@ -80,19 +82,23 @@ class BaseController extends Controller {
 
         Log::channel('installApplication')->debug(json_encode($request->all()));
 
-        $auth = $request->AUTH_ID ?? $request->auth['access_token'];
-        $refresh = $request->auth['refresh_token'] ?? null;
-        $domain = $request->DOMAIN ?? $request->auth['domain'];
+        $auth = $request->auth['access_token'];
+        $refresh = $request->auth['refresh_token'];
+        $domain = $request->auth['domain'];
 
-        if(empty($auth) || empty($domain)) {
-            abort(403, 'AUTH_ID и/или DOMAIN и/или TYPE не были переданы. Свяжитесь с технической поддержкой.');
+        if(empty($auth) || empty($refresh) || empty($domain)) {
+            $message = '$auth и/или $refresh и/или $domain не были определены. Request: '.json_encode($request->all());
+            Log::channel('critical')->critical($message);
+            abort(403, $message);
         }
 
         $property['article'] = $this->getOrCreateProductProperty("Артикул", $auth, $domain, 'article');
         $property['brand'] = $this->getOrCreateProductProperty("Бренд", $auth, $domain, 'brand');
 
         if(empty($property['article']) || empty($property['brand'])) {
-            abort(404, "Ошибка при создании свойств товара");
+            $message = "$domain - Ошибка при создании свойств товара";
+            Log::channel('critical')->critical($message);
+            abort(403, $message);
         }
 
         $availablePlacements = $this->getAvailablePlacements($auth, $domain);
@@ -100,6 +106,7 @@ class BaseController extends Controller {
 
         foreach ($availablePlacements as $placement) {
             $placementBindResponse = $this->bindPlacement($placement, $auth, $domain);
+
             if (!empty($placementBindResponse['error']) && $placementBindResponse['error_description'] == 'Unable to set placement handler: Handler already binded') {
                 $this->unbindPlacement($placement, $auth, $domain);
                 $this->bindPlacement($placement, $auth, $domain);
@@ -170,11 +177,13 @@ class BaseController extends Controller {
             ]
         );
 
-        IntegrationField::updateOrCreate([
-            'domain' => $domain
-        ], [
-            $type => $result,
-        ]);
+        if(!empty($result)) {
+            IntegrationField::updateOrCreate([
+                'domain' => $domain
+            ], [
+                $type => $result,
+            ]);
+        }
 
         return $result;
     }
@@ -212,18 +221,19 @@ class BaseController extends Controller {
             ]
         );
 
-        IntegrationField::updateOrCreate([
-            'domain' => $domain
-        ], [
-            $type => $result,
-        ]);
+        if(!empty($result)) {
+            IntegrationField::updateOrCreate([
+                'domain' => $domain
+            ], [
+                $type => $result,
+            ]);
+        }
 
         return $result;
 
     }
 
-    private function unbindPlacement(string $placement, string $auth, string $domain): void
-    {
+    private function unbindPlacement(string $placement, string $auth, string $domain): void {
         $this->executeQuery(
             $domain,
             $auth,
@@ -284,9 +294,15 @@ class BaseController extends Controller {
     private function getAvailablePlacements(string $auth, string $domain)
     {
         $pattern = '/^CRM_DYNAMIC_\d+_DETAIL_TAB$/';
-        return array_filter($this->listPlacement($auth, $domain), function($item) use ($pattern) {
-            return preg_match($pattern, $item);
-        });
+        $placements = $this->listPlacement($auth, $domain);
+
+        if(!empty($placements)) {
+            return array_filter($placements, function($item) use ($pattern) {
+                return preg_match($pattern, $item);
+            });
+        }
+
+        return [];
     }
 
     private function setEventHandler(string $auth, string $event, string $domain): void

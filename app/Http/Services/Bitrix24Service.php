@@ -266,7 +266,7 @@ class Bitrix24Service extends Controller
             $productData["product_$key"] = $row;
         }
 
-        $searchProductResult = $this->executeBatch($batchRequests, 'searchProducts');
+        $searchProductResult = $this->executeBatch($batchRequests, 'searchProducts', true);
 
         foreach ($searchProductResult as $key => $product) {
             if(empty($product)) {
@@ -276,7 +276,7 @@ class Bitrix24Service extends Controller
 
         $this->batchAddProduct($needToCreateProducts);
 
-        return $this->executeBatch($batchRequests, 'getProducts');
+        return $this->executeBatch($batchRequests, 'getProducts', true);
     }
 
     public function addProductRows(array $products, array $bitrixProducts): void
@@ -302,13 +302,13 @@ class Bitrix24Service extends Controller
                 $batchRequests["productrow_add_$key"] = "crm.item.productrow.add?auth={$this->integration->access_key}&$queryString";
             }
             if(!empty($batchRequests)) {
-                $this->executeBatch($batchRequests, 'addProductRows');
+                $this->executeBatch($batchRequests, 'addProductRows', true);
             }
         }
 
     }
 
-    private function executeBatch(array $batch, string $type): array
+    private function executeBatch(array $batch, string $type, bool $recursive = false): array
     {
         $chunks = array_chunk($batch, $this->batchSize, true);
 
@@ -337,7 +337,10 @@ class Bitrix24Service extends Controller
                 ],
                 true,
                 "Ошибка соединения с порталом - $errorReason - $this->domain",
-                $this->assigned
+                $this->assigned,
+                false,
+                $type,
+                $recursive
             );
 
             if (isset($response) && is_array($response)) {
@@ -390,6 +393,7 @@ class Bitrix24Service extends Controller
     }
 
     private function matchProducts($firstArray, $secondArray, array $properties): false|array {
+
         foreach ($firstArray as &$firstProduct) {
 
             $matchedProducts = array_filter($secondArray, function ($secondProduct) use ($firstProduct, $properties) {

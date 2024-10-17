@@ -58,6 +58,14 @@ return [
             'ignore_exceptions' => false,
         ],
 
+
+
+        'critical' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/critical.log'),
+            'level' => 'critical',
+        ],
+
         'installApplication' => [
             'driver' => 'daily',
             'path' => storage_path('logs/installApplication.log'),

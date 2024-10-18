@@ -9,6 +9,7 @@ use App\Models\Integration;
 use Cache;
 use Exception;
 use Illuminate\Http\Request;
+use Log;
 use Maatwebsite\Excel\Facades\Excel;
 
 class SyncController extends Controller {
@@ -19,13 +20,23 @@ class SyncController extends Controller {
     public function __construct(Request $request)
     {
         parse_str(parse_url($request->header('referer'), PHP_URL_QUERY), $queryParams);
-        $domain = $queryParams['DOMAIN'];
-        $this->domain = $domain;
-        $this->bitrixService = new Bitrix24Service($domain);
+        if(!empty($queryParams['DOMAIN'])) {
+            $domain = $queryParams['DOMAIN'];
+            $this->domain = $domain;
+            $this->bitrixService = new Bitrix24Service($domain);
+        }
     }
 
     public function importProcess(Request $request)
     {
+
+        if(empty($this->domain)) {
+            Log::channel('critical')->critical('$domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
+            return response()->json([
+                'message' => 'Портал не определен. Пожалуйста, свяжитесь с технической поддержкой.'
+            ], 429);
+        }
+
         $request->validate([
             'file' => 'required|mimes:xlsx,xls',
             'objectID' => 'required|integer'
@@ -81,6 +92,13 @@ class SyncController extends Controller {
 
     public function exportProcess()
     {
+        if(empty($this->domain)) {
+            Log::channel('critical')->critical('$domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
+            return response()->json([
+                'message' => 'Портал не определен. Пожалуйста, свяжитесь с технической поддержкой.'
+            ], 429);
+        }
+
         try {
             $smartProcessDetail = $this->bitrixService->getSmartProcessDetail();
             $getProductRows = $this->bitrixService->getProductRows($smartProcessDetail['SYMBOL_CODE_SHORT']);

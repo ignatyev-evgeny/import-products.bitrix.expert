@@ -69,14 +69,14 @@
 
             <ul class="nav nav-pills mb-3 row" id="pills-tab" role="tablist">
                 <li class="nav-item col-6" role="presentation">
-                    <button class="nav-link active w-100" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#pills-home" type="button" role="tab" aria-controls="pills-home" aria-selected="true">Техническая поддержка</button>
+                    <button class="nav-link  w-100" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#pills-home" type="button" role="tab" aria-controls="pills-home" aria-selected="false">Техническая поддержка</button>
                 </li>
                 <li class="nav-item col-6" role="presentation">
-                    <button class="nav-link w-100" id="view-settings-tab" data-bs-toggle="pill" data-bs-target="#view-settings" type="button" role="tab" aria-controls="view-settings" aria-selected="false">Настройка отображения</button>
+                    <button class="nav-link active w-100" id="view-settings-tab" data-bs-toggle="pill" data-bs-target="#view-settings" type="button" role="tab" aria-controls="view-settings" aria-selected="true">Настройка отображения</button>
                 </li>
             </ul>
             <div class="tab-content" id="pills-tabContent">
-                <div class="tab-pane fade show active" id="pills-home" role="tabpanel" aria-labelledby="pills-home-tab" tabindex="0">
+                <div class="tab-pane fade" id="pills-home" role="tabpanel" aria-labelledby="pills-home-tab" tabindex="0">
                     <div class="card">
                         <div class="card-body">
                             <form id="feedbackForm">
@@ -110,7 +110,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="tab-pane fade" id="view-settings" role="tabpanel" aria-labelledby="view-settings-tab" tabindex="0">
+                <div class="tab-pane fade  show active" id="view-settings" role="tabpanel" aria-labelledby="view-settings-tab" tabindex="0">
                     <div class="card">
                         <div class="card-header">Использование в смарт процессах</div>
                         <div class="card-body">

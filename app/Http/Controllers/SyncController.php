@@ -90,7 +90,7 @@ class SyncController extends Controller {
         }
     }
 
-    public function exportProcess()
+    public function exportProcess(Request $request)
     {
         if(empty($this->domain)) {
             Log::channel('critical')->critical('$domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));

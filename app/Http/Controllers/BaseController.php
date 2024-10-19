@@ -84,13 +84,13 @@ class BaseController extends Controller {
 
         Log::channel('installApplication')->debug(json_encode($request->all()));
 
-        $auth = $request->auth['access_token'];
-        $refresh = $request->auth['refresh_token'];
-        $domain = $request->auth['domain'];
+        $auth    = !empty($request->auth['access_token'])  ? $request->auth['access_token']  : (!empty($request->AUTH_ID)    ? $request->AUTH_ID    : null);
+        $refresh = !empty($request->auth['refresh_token']) ? $request->auth['refresh_token'] : (!empty($request->REFRESH_ID) ? $request->REFRESH_ID : null);
+        $domain  = !empty($request->auth['domain'])        ? $request->auth['domain']        : (!empty($request->DOMAIN)     ? $request->DOMAIN     : null);
 
         if(empty($auth) || empty($refresh) || empty($domain)) {
-            $message = '$auth и/или $refresh и/или $domain не были определены. Request: '.json_encode($request->all());
-            Log::channel('critical')->critical($message);
+            $message = '$auth и/или $refresh и/или $domain не были определены.';
+            Log::channel('critical')->critical($message.' Request: '.json_encode($request->all()));
             abort(403, $message);
         }
 
@@ -151,6 +151,10 @@ class BaseController extends Controller {
         return response()->json([
             'message' => 'Ваше сообщение успешно отправлено!'
         ]);
+    }
+
+    public function settings(Request $request) {
+        echo 'Тут будут настройки приложения';
     }
 
     /** Функция для установки приложения в смарт процессы */

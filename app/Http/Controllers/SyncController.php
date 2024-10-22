@@ -59,13 +59,14 @@ class SyncController extends Controller {
                 ], 429);
             }
 
-            Cache::put($request->objectID.'_import_in_progress', true, 3600);
+            Cache::put($request->objectID.'_' . $this->bitrixService->getDomain() . '_import_in_progress', true, 3600);
 
             try {
                 ProcessImportJob::dispatch(
                     $filePath,
                     $this->bitrixService,
-                    $request->objectID
+                    $request->objectID,
+                    $this->bitrixService->getDomain()
                 );
                 $this->bitrixService->sendNotify(
                     $this->bitrixService->getAssigned(),
@@ -77,7 +78,7 @@ class SyncController extends Controller {
                     'message' => 'Файл добавлен в очередь на обработку.'
                 ]);
             } catch (Exception $e) {
-                Cache::forget($request->objectID.'_import_in_progress');
+                Cache::forget($request->objectID.'_' . $this->bitrixService->getDomain() . '_import_in_progress');
                 return response()->json([
                     'message' => 'Ошибка запуска импорта: ' . $e->getMessage()
                 ], 500);

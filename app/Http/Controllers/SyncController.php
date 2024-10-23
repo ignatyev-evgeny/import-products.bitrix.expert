@@ -31,7 +31,7 @@ class SyncController extends Controller {
     {
 
         if(empty($this->domain)) {
-            Log::channel('critical')->critical('$domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
+            Log::channel('critical')->critical('[importProcess] $domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
             return response()->json([
                 'message' => 'Портал не определен. Пожалуйста, свяжитесь с технической поддержкой.'
             ], 429);
@@ -94,7 +94,7 @@ class SyncController extends Controller {
     public function exportProcess(Request $request)
     {
         if(empty($this->domain)) {
-            Log::channel('critical')->critical('$domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
+            Log::channel('critical')->critical('[exportProcess] $domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
             return response()->json([
                 'message' => 'Портал не определен. Пожалуйста, свяжитесь с технической поддержкой.'
             ], 429);
@@ -108,8 +108,8 @@ class SyncController extends Controller {
             $integration = Integration::where('domain', $this->domain)->first();
             foreach ($getProductRows as $getProductRow) {
                 $getProductRow['detail'] = $this->bitrixService->productDetail($getProductRow['productId']);
-                if (!empty($getProductRow['detail'])) {
-                    throw new Exception('Ошибка при получении детальной информации по товарной позиции. <br> Попробуйте еще раз или свяжитесь с технической поддержкой.');
+                if (empty($getProductRow['detail'])) {
+                    throw new Exception('Ошибка при получении детальной информации по товарной позиции. <br> Возможно товар <b>' . $getProductRow['productName'] . '</b> ранее был удален. <br> Попробуйте еще раз или свяжитесь с технической поддержкой.');
                 }
                 $exportData[] = [
                     $count++,

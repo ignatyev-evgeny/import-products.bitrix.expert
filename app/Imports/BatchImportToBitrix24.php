@@ -3,6 +3,7 @@
 namespace App\Imports;
 
 use App\Http\Services\Bitrix24Service;
+use Cache;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\ToCollection;
@@ -17,10 +18,12 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
     private Bitrix24Service $bitrixService;
 
     public int $timeout = 3600;
+    private string $uuid;
 
-    public function __construct(Bitrix24Service $bitrixService)
+    public function __construct(Bitrix24Service $bitrixService, $uuid)
     {
         $this->bitrixService = $bitrixService;
+        $this->uuid = $uuid;
     }
 
     public function collection(Collection $collection)
@@ -32,6 +35,11 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
             return $row->filter()->isNotEmpty();
         });
 
+        logImport($this->uuid, [
+            'status' => 'Обработка файла',
+            'file_count_rows' => $filteredCollection->count(),
+            'events_history' => 'Файл запущен в обработку для формирования массива товарных позиций'
+        ]);
 
         foreach ($filteredCollection as $row) {
 
@@ -51,6 +59,10 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
             }
         }
 
+        logImport($this->uuid, [
+            'events_history' => 'Массив товарных позиций успешно подготовлен в кол-ве - '.count($products)
+        ]);
+
         if(!empty($products)) {
 
             $uniqueProducts = [];
@@ -66,6 +78,11 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
 
             $uniqueProducts = array_values($uniqueProducts);
 
+            logImport($this->uuid, [
+                'product_count_rows' => count($uniqueProducts),
+                'events_history' => 'Массив уникальных товарных позиций успешно подготовлен  в кол-ве - '.count($uniqueProducts)
+            ]);
+
             if(empty($uniqueProducts)) {
                 $this->bitrixService->sendNotify(
                     $this->bitrixService->getAssigned(),
@@ -73,16 +90,43 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
                     $this->bitrixService->getDomain(),
                     $this->bitrixService->getAuthID()
                 );
+
+                logImport($this->uuid, [
+                    'status' => 'Ошибка',
+                    'events_history' => 'Массив уникальных товарных позиций пустой'
+                ]);
+
                 return false;
             }
 
-            $bitrixProducts = $this->bitrixService->getOrCreateProducts($uniqueProducts);
+            logImport($this->uuid, [
+                'status' => 'Создание товаров',
+                'events_history' => 'Запускается алгоритм массового поиска / создания товаров'
+            ]);
+
+            $bitrixProducts = $this->bitrixService->getOrCreateProducts($uniqueProducts, $this->uuid);
+
+            logImport($this->uuid, [
+                'status' => 'Создание товарных позиций',
+                'events_history' => 'Запускается алгоритм массового создания товарных позиций'
+            ]);
+
             $this->bitrixService->addProductRows(
                 $uniqueProducts,
-                $bitrixProducts
+                $bitrixProducts,
+                $this->uuid
             );
 
+        } else {
+
+            logImport($this->uuid, [
+                'status' => 'Ошибка',
+                'events_history' => 'Массив товарных позиций пустой'
+            ]);
+
         }
+
+        Cache::forget($this->bitrixService->getObjectId().'_' . $this->bitrixService->getDomain() . '_import_in_progress');
 
     }
 
@@ -96,11 +140,30 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
         return [
             BeforeImport::class => function(BeforeImport $event) {
                 $smartProcessDetail = $this->bitrixService->getSmartProcessDetail();
+
+                logImport($this->uuid, [
+                    'status' => 'Очистка',
+                    'events_history' => 'Запуск очистки товарных позиций'
+                ]);
+
                 $this->bitrixService->clearProductRow(
-                    $smartProcessDetail['SYMBOL_CODE_SHORT']
+                    $smartProcessDetail['SYMBOL_CODE_SHORT'],
+                    $this->uuid
                 );
+
+                logImport($this->uuid, [
+                    'status' => 'Очищено',
+                    'events_history' => 'Товарные позиции успешно очищены'
+                ]);
+
             },
             AfterImport::class => function(AfterImport $event) {
+
+                logImport($this->uuid, [
+                    'status' => 'Успех',
+                    'events_history' => 'Импорт завершен'
+                ]);
+
                 $this->bitrixService->sendNotify(
                     $this->bitrixService->getAssigned(),
                     'Импорт завершен!',

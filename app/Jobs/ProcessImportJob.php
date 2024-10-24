@@ -23,13 +23,15 @@ class ProcessImportJob implements ShouldQueue
     public $timeout = 3600;
     private int $objectID;
     private string $domain;
+    private mixed $uuid;
 
-    public function __construct($filePath, Bitrix24Service $bitrixService, $objectID, $domain)
+    public function __construct($filePath, Bitrix24Service $bitrixService, $objectID, $domain, $uuid)
     {
         $this->filePath = $filePath;
         $this->bitrixService = $bitrixService;
         $this->objectID = $objectID;
         $this->domain = $domain;
+        $this->uuid = $uuid;
     }
 
     public function middleware()
@@ -46,12 +48,29 @@ class ProcessImportJob implements ShouldQueue
 
     public function handle()
     {
-        Excel::import(new BatchImportToBitrix24($this->bitrixService), $this->filePath);
-        Cache::forget($this->objectID.'_' . $this->domain . '_import_in_progress');
+
+        logImport($this->uuid, [
+            'status' => 'Запуск импорта',
+            'events_history' => 'Очередь ProcessImportJob - Запуск импорта'
+        ]);
+
+        Excel::import(new BatchImportToBitrix24($this->bitrixService, $this->uuid), $this->filePath);
+
+        logImport($this->uuid, [
+            'status' => 'Импорт запущен',
+            'events_history' => 'Очередь ProcessImportJob - Импорт запущен'
+        ]);
+
     }
 
     public function failed()
     {
+
+        logImport($this->uuid, [
+            'status' => 'Ошибка',
+            'events_history' => 'Очередь ProcessImportJob - Ошибка при запуске импорта'
+        ]);
+
         Cache::forget($this->objectID.'_' . $this->domain . '_import_in_progress');
     }
 }

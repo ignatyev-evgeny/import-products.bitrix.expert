@@ -19,6 +19,7 @@ abstract class Controller
         $pagination = false,
         $type = null,
         $recursive = false,
+        $uuid = null,
     ) {
         $request = match ($method) {
             'GET' => Http::timeout(120)->get("https://$domain/rest/$endpoint", $data),
@@ -50,6 +51,13 @@ abstract class Controller
                 );
             }
 
+            if(!empty($uuid)) {
+                logImport($uuid, [
+                    'status' => 'Ошибка',
+                    'events_history' => $message
+                ]);
+            }
+
             return [];
         }
 
@@ -59,10 +67,6 @@ abstract class Controller
 
         if($recursive) {
             return $request->json()['result']['result'];
-        }
-
-        if(empty($request->json()['result'])) {
-            dd($request->json());
         }
 
         return $request->json()['result'];

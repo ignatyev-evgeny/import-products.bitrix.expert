@@ -188,7 +188,7 @@ class Bitrix24Service extends Controller
         ];
     }
 
-    public function clearProductRow(string $ownerType): void
+    public function clearProductRow(string $ownerType, string $uuid): void
     {
         do {
 
@@ -206,10 +206,22 @@ class Bitrix24Service extends Controller
                 ],
                 true,
                 "Ошибка соединения с порталом. $this->domain",
-                $this->assigned
+                $this->assigned,
+                false,
+                null,
+                false,
+                $uuid
             );
 
             if(!isset($response['productRows'])) {
+
+                if(!empty($uuid)) {
+                    logImport($uuid, [
+                        'status' => 'Ошибка',
+                        'events_history' => 'Ошибка при получении списка товарных позиций.'
+                    ]);
+                }
+
                 $this->sendNotify(
                     $this->assigned,
                     'Ошибка при получении списка товарных позиций. Свяжитесь с технической поддержкой.',
@@ -220,7 +232,7 @@ class Bitrix24Service extends Controller
             }
 
             if(!empty($response['productRows'])) {
-                $this->batchDeleteProductRows($response['productRows'], $this->authId);
+                $this->batchDeleteProductRows($response['productRows'], $this->authId, $uuid);
             }
 
         } while (!empty($response['productRows']));
@@ -240,7 +252,7 @@ class Bitrix24Service extends Controller
         return $response ?? [];
     }
 
-    public function getOrCreateProducts(array $data): array
+    public function getOrCreateProducts(array $data, string $uuid): array
     {
 
         $productData = $batchRequests = $needToCreateProducts = [];
@@ -266,6 +278,11 @@ class Bitrix24Service extends Controller
             $productData["product_$key"] = $row;
         }
 
+        logImport($uuid, [
+            'status' => 'Поиск товаров',
+            'events_history' => 'Запускается поиска товаров на стороне Bitrix24'
+        ]);
+
         $searchProductResult = $this->executeBatch($batchRequests, 'searchProducts', true);
 
         foreach ($searchProductResult as $key => $product) {
@@ -274,12 +291,22 @@ class Bitrix24Service extends Controller
             }
         }
 
-        $this->batchAddProduct($needToCreateProducts);
+        logImport($uuid, [
+            'events_history' => 'Проверка необходимости создания новых товаров. Необходимо создать продукты в кол-ве - '.count($needToCreateProducts)
+        ]);
 
-        return $this->executeBatch($batchRequests, 'getProducts', true);
+        if(!empty($needToCreateProducts)) {
+            $this->batchAddProduct($needToCreateProducts, $uuid);
+        }
+
+        logImport($uuid, [
+            'events_history' => 'Получаем список всех продуктов'
+        ]);
+
+        return $this->executeBatch($batchRequests, 'getProducts', true, $uuid);
     }
 
-    public function addProductRows(array $products, array $bitrixProducts): void
+    public function addProductRows(array $products, array $bitrixProducts, $uuid): void
     {
 
         $properties = [
@@ -302,13 +329,13 @@ class Bitrix24Service extends Controller
                 $batchRequests["productrow_add_$key"] = "crm.item.productrow.add?auth={$this->integration->access_key}&$queryString";
             }
             if(!empty($batchRequests)) {
-                $this->executeBatch($batchRequests, 'addProductRows', true);
+                $this->executeBatch($batchRequests, 'addProductRows', true, $uuid);
             }
         }
 
     }
 
-    private function executeBatch(array $batch, string $type, bool $recursive = false): array
+    private function executeBatch(array $batch, string $type, bool $recursive = false, string $uuid = null): array
     {
         $chunks = array_chunk($batch, $this->batchSize, true);
 
@@ -321,7 +348,25 @@ class Bitrix24Service extends Controller
             default => null
         };
 
+        $reason = match ($type) {
+            'getProducts' => 'Получение товаров',
+            'searchProducts' => 'Поиск товаров',
+            'addProducts' => 'Создание товара',
+            'deleteProductRows' => 'Удалении товарных позиций',
+            'addProductRows' => 'Добавлении товарных позиций',
+            default => null
+        };
+
+        if(!empty($uuid)) {
+            logImport($uuid, [
+                'status' => 'Batch',
+                'events_history' => "[Batch] ".$reason
+            ]);
+        }
+
         $allResults = [];
+
+        $batchCount = 0;
 
         foreach ($chunks as $chunk) {
 
@@ -340,19 +385,29 @@ class Bitrix24Service extends Controller
                 $this->assigned,
                 false,
                 $type,
-                $recursive
+                $recursive,
+                $uuid
             );
 
             if (isset($response) && is_array($response)) {
                 $allResults = array_merge_recursive($allResults, $response);
             }
 
+            $batchCount++;
+
+        }
+
+        if(!empty($uuid)) {
+            logImport($uuid, [
+                'status' => 'Batch',
+                'events_history' => "Batch количество ".$batchCount
+            ]);
         }
 
         return flattenArray($allResults);
     }
 
-    private function batchAddProduct(array $data): void
+    private function batchAddProduct(array $data, string $uuid): void
     {
         foreach ($data as $key => $row) {
 
@@ -377,18 +432,18 @@ class Bitrix24Service extends Controller
         }
 
         if(!empty($batchRequests)) {
-            $this->executeBatch($batchRequests, 'addProducts');
+            $this->executeBatch($batchRequests, 'addProducts', false, $uuid);
         }
     }
 
-    private function batchDeleteProductRows(array $productRows, string $accessKey): void
+    private function batchDeleteProductRows(array $productRows, string $accessKey, string $uuid): void
     {
         foreach ($productRows as $key => $row) {
             $batchRequests["productrow_delete_$key"] = "crm.item.productrow.delete?auth=$accessKey&id=".$row['id'];
         }
 
         if(!empty($batchRequests)) {
-            $this->executeBatch($batchRequests, 'deleteProductRows');
+            $this->executeBatch($batchRequests, 'deleteProductRows', false, $uuid);
         }
     }
 

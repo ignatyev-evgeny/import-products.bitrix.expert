@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Exports\ExportProductRows;
 use App\Http\Services\Bitrix24Service;
 use App\Jobs\ProcessImportJob;
+use App\Models\Import;
 use App\Models\Integration;
 use Cache;
 use Exception;
 use Illuminate\Http\Request;
 use Log;
 use Maatwebsite\Excel\Facades\Excel;
+use Str;
 
 class SyncController extends Controller {
 
@@ -30,6 +32,13 @@ class SyncController extends Controller {
     public function importProcess(Request $request)
     {
 
+        $uuid = Str::uuid();
+
+        logImport($uuid, [
+            'status' => 'Проверка',
+            'events_history' => 'Начало импорта файла'
+        ]);
+
         if(empty($this->domain)) {
             Log::channel('critical')->critical('[importProcess] $domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
             return response()->json([
@@ -37,9 +46,18 @@ class SyncController extends Controller {
             ], 429);
         }
 
+        logImport($uuid, [
+            'domain' => $this->domain,
+            'events_history' => 'Домен успешно определен'
+        ]);
+
         $request->validate([
             'file' => 'required|mimes:xlsx,xls',
             'objectID' => 'required|integer'
+        ]);
+
+        logImport($uuid, [
+            'events_history' => 'Валидация прошла успешно'
         ]);
 
         try {
@@ -54,6 +72,11 @@ class SyncController extends Controller {
                     $this->bitrixService->getAuthID()
                 );
 
+                logImport($uuid, [
+                    'status' => 'Ошибка',
+                    'events_history' => 'Импорт уже выполняется. Пожалуйста, дождитесь завершения.'
+                ]);
+
                 return response()->json([
                     'message' => 'Импорт уже выполняется. Пожалуйста, дождитесь завершения.'
                 ], 429);
@@ -66,25 +89,46 @@ class SyncController extends Controller {
                     $filePath,
                     $this->bitrixService,
                     $request->objectID,
-                    $this->bitrixService->getDomain()
+                    $this->bitrixService->getDomain(),
+                    $uuid
                 );
                 $this->bitrixService->sendNotify(
                     $this->bitrixService->getAssigned(),
-                    'Файл добавлен в очередь на обработку.',
+                    'Файл добавлен в очередь на обработку. UUID: '.$uuid,
                     $this->bitrixService->getDomain(),
                     $this->bitrixService->getAuthID()
                 );
+
+                logImport($uuid, [
+                    'status' => 'Добавлен в очередь',
+                    'file_name' => $request->file('file')->getClientOriginalName(),
+                    'file_size' => round($request->file('file')->getSize() / 1024, 2)." KB",
+                    'events_history' => 'Файл добавлен в очередь на обработку.'
+                ]);
+
                 return response()->json([
-                    'message' => 'Файл добавлен в очередь на обработку.'
+                    'message' => "Файл добавлен в очередь на обработку.<br> <b>UUID: $uuid</b>"
                 ]);
             } catch (Exception $e) {
                 Cache::forget($request->objectID.'_' . $this->bitrixService->getDomain() . '_import_in_progress');
+
+                logImport($uuid, [
+                    'status' => 'Ошибка запуска импорта',
+                    'events_history' => $e->getMessage()
+                ]);
+
                 return response()->json([
                     'message' => 'Ошибка запуска импорта: ' . $e->getMessage()
                 ], 500);
             }
 
         } catch (Exception $exception) {
+
+            logImport($uuid, [
+                'status' => 'Ошибка',
+                'events_history' => $exception->getMessage()
+            ]);
+
             return response()->json([
                 'message' => $exception->getMessage()
             ], 500);

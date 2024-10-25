@@ -4,6 +4,7 @@ namespace App\Http\Services;
 
 use App\Http\Controllers\Controller;
 use App\Models\Integration;
+use Exception;
 use Illuminate\Support\Facades\Cache;
 
 class Bitrix24Service extends Controller
@@ -314,7 +315,7 @@ class Bitrix24Service extends Controller
             'brand' => $this->integration->product_field_brand
         ];
 
-        $matchProducts = $this->matchProducts($products, $bitrixProducts, $properties);
+        $matchProducts = $this->matchProducts($products, $bitrixProducts, $properties, $uuid);
 
         if(is_array($matchProducts)) {
             foreach ($matchProducts as $key => $product) {
@@ -447,34 +448,53 @@ class Bitrix24Service extends Controller
         }
     }
 
-    private function matchProducts($firstArray, $secondArray, array $properties): false|array {
+    private function matchProducts($firstArray, $secondArray, array $properties, string $uuid): false|array {
 
-        foreach ($firstArray as &$firstProduct) {
+        try {
 
-            $matchedProducts = array_filter($secondArray, function ($secondProduct) use ($firstProduct, $properties) {
-                $matchByName = $firstProduct['name'] === $secondProduct['NAME'];
-                $matchByArticle = empty($firstProduct['article']) || $firstProduct['article'] === ($secondProduct['PROPERTY_'.$properties['article']]['value'] ?? null);
-                $matchByBrand = empty($firstProduct['brand']) || $firstProduct['brand'] === ($secondProduct['PROPERTY_'.$properties['brand']]['value'] ?? null);
-                return $matchByName && $matchByArticle && $matchByBrand;
-            });
+            foreach ($firstArray as &$firstProduct) {
 
-            if (count($matchedProducts) > 1) {
-                $this->sendNotify(
-                    $this->assigned,
-                    "Найдено несколько совпадений для товара: {$firstProduct['name']}",
-                    $this->domain,
-                    $this->authId
-                );
-                return false;
+                $matchedProducts = array_filter($secondArray, function ($secondProduct) use ($firstProduct, $properties) {
+                    $matchByName = $firstProduct['name'] === $secondProduct['NAME'];
+                    $matchByArticle = empty($firstProduct['article']) || $firstProduct['article'] === ($secondProduct['PROPERTY_'.$properties['article']]['value'] ?? null);
+                    $matchByBrand = empty($firstProduct['brand']) || $firstProduct['brand'] === ($secondProduct['PROPERTY_'.$properties['brand']]['value'] ?? null);
+                    return $matchByName && $matchByArticle && $matchByBrand;
+                });
+
+                if (count($matchedProducts) > 1) {
+
+                    logImport($uuid, [
+                        'status' => 'Ошибка',
+                        'events_history' => "Найдено несколько совпадений для товара: {$firstProduct['name']}"
+                    ]);
+
+                    $this->sendNotify(
+                        $this->assigned,
+                        "Найдено несколько совпадений для товара: {$firstProduct['name']}",
+                        $this->domain,
+                        $this->authId
+                    );
+                    return false;
+                }
+
+                if (count($matchedProducts) === 1) {
+                    $matchedProduct = reset($matchedProducts);
+                    $firstProduct['productId'] = $matchedProduct['ID'];
+                }
             }
 
-            if (count($matchedProducts) === 1) {
-                $matchedProduct = reset($matchedProducts);
-                $firstProduct['productId'] = $matchedProduct['ID'];
-            }
+            return $firstArray;
+
+        } catch (Exception $exception) {
+
+            logImport($uuid, [
+                'status' => 'Ошибка',
+                'events_history' => "Ошибка при Match товаров - ".$exception->getMessage()
+            ]);
+
+            return false;
         }
 
-        return $firstArray;
     }
 
     private function getOwnerType() {

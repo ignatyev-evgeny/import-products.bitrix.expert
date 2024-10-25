@@ -3,7 +3,9 @@
 namespace App\Imports;
 
 use App\Http\Services\Bitrix24Service;
+use App\Models\Import;
 use Cache;
+use Exception;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Collection;
 use Maatwebsite\Excel\Concerns\ToCollection;
@@ -41,9 +43,20 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
             'events_history' => 'Файл запущен в обработку для формирования массива товарных позиций'
         ]);
 
+        $longName = false;
+
         foreach ($filteredCollection as $row) {
 
             $indexedRow = $row->values();
+
+            if (mb_strlen($indexedRow[3]) > 255) {
+                logImport($this->uuid, [
+                    'status' => 'Ошибка',
+                    'events_history' => 'Наименование товара "'.$indexedRow[3].'" слишком длинное и составляет более 255 символов'
+                ]);
+                $longName = true;
+                break;
+            }
 
             if(!empty($indexedRow[3])) {
                 $products[] = [
@@ -57,6 +70,11 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
                     'quantity' => $indexedRow[5] ?? 1
                 ];
             }
+        }
+
+        if($longName) {
+            Cache::forget($this->bitrixService->getObjectId().'_' . $this->bitrixService->getDomain() . '_import_in_progress');
+            return false;
         }
 
         logImport($this->uuid, [
@@ -159,17 +177,33 @@ class BatchImportToBitrix24 implements ToCollection, WithHeadingRow, WithChunkRe
             },
             AfterImport::class => function(AfterImport $event) {
 
-                logImport($this->uuid, [
-                    'status' => 'Успех',
-                    'events_history' => 'Импорт завершен'
-                ]);
+                $import = Import::where('uuid', $this->uuid)->first();
 
-                $this->bitrixService->sendNotify(
-                    $this->bitrixService->getAssigned(),
-                    'Импорт завершен!',
-                    $this->bitrixService->getDomain(),
-                    $this->bitrixService->getAuthID()
-                );
+                if($import->status == "Ошибка") {
+
+                    $this->bitrixService->sendNotify(
+                        $this->bitrixService->getAssigned(),
+                        'Импорт завершен c ошибкой! Ошибка - '.last($import->events_history),
+                        $this->bitrixService->getDomain(),
+                        $this->bitrixService->getAuthID()
+                    );
+
+                } else {
+
+                    logImport($this->uuid, [
+                        'status' => 'Успех',
+                        'events_history' => 'Импорт завершен'
+                    ]);
+
+                    $this->bitrixService->sendNotify(
+                        $this->bitrixService->getAssigned(),
+                        'Импорт завершен!',
+                        $this->bitrixService->getDomain(),
+                        $this->bitrixService->getAuthID()
+                    );
+
+                }
+
             },
         ];
     }

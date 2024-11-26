@@ -111,6 +111,12 @@
                     </div>
                 </div>
                 <div class="tab-pane fade  show active" id="view-settings" role="tabpanel" aria-labelledby="view-settings-tab" tabindex="0">
+                    @if(!$isAdmin)
+                        <div id="alert-placement-container" class="mt-3">
+                            <div class="alert alert-danger text-center">Изменение настроек интеграции возможно только администратором портала</div>
+                        </div>
+                    @endif
+                    <div id="alert-placement-container" class="mt-3"></div>
                     <div class="card">
                         <div class="card-header">Использование в смарт процессах</div>
                         <div class="card-body">
@@ -121,9 +127,35 @@
                                     @foreach($availablePlacements as $key => $placement)
                                         <div class="form-check form-switch d-flex justify-content-between">
                                             <label class="form-check-label" for="{{ $key }}">{{ $placement['title'] }}</label>
-                                            <input class="form-check-input" type="checkbox" id="{{ $key }}" checked disabled>
+                                            <input class="form-check-input placement-checkbox" type="checkbox" id="{{ $key }}" @if(in_array($key, $activePlacements)) checked @endif @if(!$isAdmin) disabled @endif >
                                         </div>
                                     @endforeach
+
+                                    @if($isAdmin)
+                                        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+                                        <script>
+                                            $(document).on('change', '.placement-checkbox', function() {
+                                                const status = $(this).is(':checked'); // Текущее состояние
+                                                const key = $(this).attr('id');    // ID текущего чекбокса
+
+                                                $.ajax({
+                                                    url: '{{ route('placementStatus') }}', // Укажите URL маршрута
+                                                    type: 'PATCH', // Метод запроса
+                                                    data: {
+                                                        key: key,
+                                                        status: status, // Передача состояния (1 - включен, 0 - выключен)
+                                                        domain: "{{ $domain }}" // Передача состояния (1 - включен, 0 - выключен)
+                                                    },
+                                                    success: function(response) {
+                                                        $('#alert-placement-container').html('<div class="alert alert-success text-center">' + response.message + '</div>');
+                                                    },
+                                                    error: function(xhr) {
+                                                        $('#alert-placement-container').html('<div class="alert alert-danger text-center">' + xhr.responseJSON.message + '</div>');
+                                                    }
+                                                });
+                                            });
+                                            </script>
+                                    @endif
                                 @endif
                             </div>
                         </div>

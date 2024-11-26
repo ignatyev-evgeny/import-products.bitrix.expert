@@ -12,3 +12,4 @@ Route::post('/import', [SyncController::class, 'importProcess'])->withoutMiddlew
 Route::any('/export', [SyncController::class, 'exportProcess'])->withoutMiddleware(VerifyCsrfToken::class)->name('export.process');
 Route::any('/event/handler', [BaseController::class, 'eventHandler'])->withoutMiddleware(VerifyCsrfToken::class)->name('eventHandler');
 Route::post('/feedback', [BaseController::class, 'feedback'])->withoutMiddleware(VerifyCsrfToken::class)->name('feedback');
+Route::patch('/placement/status', [BaseController::class, 'placementStatus'])->withoutMiddleware(VerifyCsrfToken::class)->name('placementStatus');

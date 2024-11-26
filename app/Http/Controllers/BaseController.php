@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\FeedbackMail;
 use App\Models\Integration;
 use App\Models\IntegrationField;
+use Exception;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -20,7 +21,6 @@ class BaseController extends Controller {
     /** Обработчик главной страницы, на которую пользователь попадает каждый раз когда открывает приложение */
     public function index(Request $request)
     {
-
         if (preg_match('/(DYNAMIC_\d+|CRM_DEAL_DETAIL_TAB)/', $request->PLACEMENT, $matches)) {
             $type = match ($matches[0]) {
                 'CRM_DEAL_DETAIL_TAB' => 'DEAL',
@@ -50,6 +50,8 @@ class BaseController extends Controller {
         Cache::set($integration->id.'_OBJECT_ID', $objectId, $request->AUTH_EXPIRES);
 
         $availablePlacements = $this->listProcess($integration->access_key, $request->DOMAIN);
+        $activePlacements = $this->getActivePlacements($integration->access_key, $request->DOMAIN);
+        $isAdmin = $this->isAdmin($integration->access_key, $request->DOMAIN);
 
         if(config('app.maintenance_mode') != "ON") {
             return view('errors.maintenanceMode');
@@ -58,6 +60,8 @@ class BaseController extends Controller {
         if($request->DOMAIN != 'b24-906dpp.bitrix24.ru') {
             return view('index', [
                 'availablePlacements' => $availablePlacements,
+                'activePlacements' => $activePlacements,
+                'isAdmin' => $isAdmin,
                 'domain' => $request->DOMAIN,
                 'objectID' => $objectId,
             ]);
@@ -65,6 +69,8 @@ class BaseController extends Controller {
 
         return view('newIndex', [
             'availablePlacements' => $availablePlacements,
+            'activePlacements' => $activePlacements,
+            'isAdmin' => $isAdmin,
             'domain' => $request->DOMAIN,
             'objectID' => $objectId,
         ]);
@@ -155,6 +161,50 @@ class BaseController extends Controller {
 
     public function settings(Request $request) {
         echo 'Тут будут настройки приложения';
+    }
+
+    public function placementStatus(Request $request)
+    {
+        /** Преобразование строки "true"/"false" в булево значение */
+        $request->merge([
+            'status' => filter_var($request->input('status'), FILTER_VALIDATE_BOOLEAN),
+        ]);
+
+        $validated = $request->validate([
+            'key' => 'required|string',
+            'status' => 'required|boolean',
+            'domain' => 'required|string',
+        ]);
+
+        try {
+
+            $integration = Integration::where('domain', $validated['domain'])->first();
+
+            if(empty($integration)) {
+                return response()->json([
+                    'message' => "Интеграция не найдена. <br> Переустановите приложение."
+                ], 404);
+            }
+
+            $accessKey = $integration->access_key;
+
+            match ($validated['status']) {
+                true => self::bindPlacement($validated['key'], $accessKey, $validated['domain']),
+                false => self::unbindPlacement($validated['key'], $accessKey, $validated['domain']),
+            };
+
+            if(!empty($integration)) {
+                return response()->json([
+                    'message' => "Интеграция приложения обновлена"
+                ]);
+            }
+
+        } catch (Exception $exception) {
+            report($exception);
+            return response()->json([
+                'message' => "В процессе изменения интеграции произошла ошибка.<br>Попробуйте снова или свяжитесь с технической поддержкой."
+            ], 500);
+        }
     }
 
     /** Функция для установки приложения в смарт процессы */
@@ -273,6 +323,33 @@ class BaseController extends Controller {
         );
     }
 
+    private function getPlacements(string $auth, string $domain)
+    {
+        return $this->executeQuery(
+            $domain,
+            $auth,
+            "placement.get",
+            "GET",
+            [
+                'auth' => $auth,
+            ]
+        );
+    }
+
+    private function getActivePlacements(string $auth, string $domain)
+    {
+        $activePlacementsFormat = [];
+        $activePlacements = self::getPlacements($auth, $domain);
+
+        if(!empty($activePlacements)) {
+            foreach ($activePlacements as $placement) {
+                $activePlacementsFormat[] = $placement['placement'];
+            }
+        }
+
+        return $activePlacementsFormat;
+    }
+
     private function listPlacement(string $auth, string $domain)
     {
         return $this->executeQuery(
@@ -343,6 +420,19 @@ class BaseController extends Controller {
                 'auth' => $auth,
                 'event' => $event,
                 'handler' => self::EVENT_HANDLER_URL,
+            ]
+        );
+    }
+
+    private function isAdmin(string $auth, string $domain)
+    {
+        return $this->executeQuery(
+            $domain,
+            $auth,
+            "user.admin.json",
+            "GET",
+            [
+                'auth' => $auth,
             ]
         );
     }

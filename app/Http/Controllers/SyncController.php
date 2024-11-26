@@ -140,7 +140,7 @@ class SyncController extends Controller {
         if(empty($this->domain)) {
             Log::channel('critical')->critical('[exportProcess] $domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
             return response()->json([
-                'message' => 'Портал не определен. Пожалуйста, свяжитесь с технической поддержкой.'
+                'message' => 'Портал не определен. Пожалуйста попробуйте еще раз после обновления страницы или свяжитесь с технической поддержкой.'
             ], 429);
         }
 

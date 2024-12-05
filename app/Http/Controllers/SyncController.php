@@ -137,6 +137,7 @@ class SyncController extends Controller {
 
     public function exportProcess(Request $request)
     {
+
         if(empty($this->domain)) {
             Log::channel('critical')->critical('[exportProcess] $domain не определен. Headers: '.json_encode($request->headers).' | Request: '.json_encode($request->all()));
             return response()->json([
@@ -151,7 +152,14 @@ class SyncController extends Controller {
             $count = 1;
             $integration = Integration::where('domain', $this->domain)->first();
             foreach ($getProductRows as $getProductRow) {
-                $getProductRow['detail'] = $this->bitrixService->productDetail($getProductRow['productId']);
+
+                $productId = $getProductRow['productId'];
+
+                $getProductRow['catalog'] = $this->bitrixService->productCatalog($productId);
+                $productId = empty($getProductRow['catalog']['product']['parentId']['value']) ? $productId : (int) $getProductRow['catalog']['product']['parentId']['value'];
+
+                $getProductRow['detail'] = $this->bitrixService->productDetail($productId);
+
                 if (empty($getProductRow['detail'])) {
                     throw new Exception('Ошибка при получении детальной информации по товарной позиции. <br> Возможно товар <b>' . $getProductRow['productName'] . '</b> ранее был удален. <br> Попробуйте еще раз или свяжитесь с технической поддержкой.');
                 }
@@ -164,6 +172,7 @@ class SyncController extends Controller {
                     $getProductRow['quantity'],
                 ];
             }
+
             $fileName = 'exported_data_' . time() . '.xlsx';
             Excel::store(new ExportProductRows($exportData), 'public/' . $fileName);
             $downloadUrl = asset('storage/' . $fileName);

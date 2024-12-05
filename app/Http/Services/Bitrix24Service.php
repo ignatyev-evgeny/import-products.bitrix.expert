@@ -239,12 +239,26 @@ class Bitrix24Service extends Controller
         } while (!empty($response['productRows']));
     }
 
+    public function productCatalog(int $productId) {
+        $response = $this->executeQuery(
+            $this->domain,
+            $this->authId,
+            'catalog.product.get',
+            'GET',
+            [
+                'auth' => $this->authId,
+                'id' => $productId,
+            ]
+        );
+        return $response ?? [];
+    }
+
     public function productDetail(int $productId) {
         $response = $this->executeQuery(
             $this->domain,
             $this->authId,
             'crm.product.get',
-            'POST',
+            'GET',
             [
                 'auth' => $this->authId,
                 'id' => $productId,
